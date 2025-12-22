@@ -54,6 +54,7 @@ h1 {
 }
 
 .video-container {
+  position: relative;
   width: 100%;
   max-width: 1280px;
   display: flex;

@@ -7,6 +7,7 @@ function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string>('')
+  const [videoReady, setVideoReady] = useState(false)
   const [backgroundImage, setBackgroundImage] = useState<HTMLImageElement | null>(null)
   const { segmenter, isLoading, error: segmenterError } = useImageSegmentation()
   const animationFrameRef = useRef<number | undefined>(undefined)
@@ -25,6 +26,11 @@ function App() {
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream
+
+          // ビデオのメタデータが読み込まれたらvideoReadyをtrueに設定
+          videoRef.current.onloadedmetadata = () => {
+            setVideoReady(true)
+          }
         }
       } catch (err) {
         console.error('カメラへのアクセスエラー:', err)
@@ -42,12 +48,13 @@ function App() {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)
       }
+      setVideoReady(false)
     }
   }, [])
 
   // セグメンテーション処理
   useEffect(() => {
-    if (!segmenter || !videoRef.current || !canvasRef.current) return
+    if (!segmenter || !videoRef.current || !canvasRef.current || !videoReady) return
 
     let lastVideoTime = -1
 
@@ -78,7 +85,7 @@ function App() {
         cancelAnimationFrame(animationFrameRef.current)
       }
     }
-  }, [segmenter, backgroundImage])
+  }, [segmenter, backgroundImage, videoReady])
 
   // 背景画像のアップロード処理
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -138,7 +145,14 @@ function App() {
               ref={videoRef}
               autoPlay
               playsInline
-              style={{ display: 'none' }}
+              muted
+              style={{
+                position: 'absolute',
+                width: '1px',
+                height: '1px',
+                opacity: 0,
+                pointerEvents: 'none'
+              }}
             />
             <canvas ref={canvasRef} className="canvas" />
           </div>

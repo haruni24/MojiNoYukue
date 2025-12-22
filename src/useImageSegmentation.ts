@@ -20,8 +20,8 @@ export const useImageSegmentation = () => {
             delegate: 'GPU'
           },
           runningMode: 'VIDEO',
-          outputCategoryMask: true,
-          outputConfidenceMasks: false
+          outputCategoryMask: false,
+          outputConfidenceMasks: true
         })
 
         setSegmenter(imageSegmenter)
@@ -49,47 +49,70 @@ export const applyBackgroundReplacement = (
   const ctx = canvasElement.getContext('2d')
   if (!ctx) return
 
-  canvasElement.width = videoElement.videoWidth
-  canvasElement.height = videoElement.videoHeight
+  // ビデオが準備できているかチェック
+  if (videoElement.readyState < 2 || videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+    return
+  }
 
+  const width = videoElement.videoWidth
+  const height = videoElement.videoHeight
+
+  canvasElement.width = width
+  canvasElement.height = height
+
+  // セグメンテーション実行
   const result = segmenter.segmentForVideo(videoElement, timestamp)
 
-  if (result && result.categoryMask) {
-    const mask = result.categoryMask.getAsFloat32Array()
+  // confidenceMasksを使用
+  if (result && result.confidenceMasks && result.confidenceMasks.length > 0) {
+    const mask = result.confidenceMasks[0].getAsFloat32Array()
 
-    // 背景を描画
+    // まずビデオフレームを描画
+    ctx.drawImage(videoElement, 0, 0, width, height)
+    const videoImageData = ctx.getImageData(0, 0, width, height)
+
+    // 背景用のImageDataを作成
+    let backgroundImageData: ImageData
+
     if (backgroundImage) {
-      ctx.drawImage(backgroundImage, 0, 0, canvasElement.width, canvasElement.height)
+      // 背景画像を描画
+      ctx.drawImage(backgroundImage, 0, 0, width, height)
+      backgroundImageData = ctx.getImageData(0, 0, width, height)
     } else {
-      // デフォルトの背景色
-      ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, canvasElement.width, canvasElement.height)
-    }
-
-    // 一時的なキャンバスにビデオフレームを描画
-    const tempCanvas = document.createElement('canvas')
-    tempCanvas.width = canvasElement.width
-    tempCanvas.height = canvasElement.height
-    const tempCtx = tempCanvas.getContext('2d')
-    if (!tempCtx) return
-
-    tempCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height)
-    const videoImageData = tempCtx.getImageData(0, 0, canvasElement.width, canvasElement.height)
-    const currentImageData = ctx.getImageData(0, 0, canvasElement.width, canvasElement.height)
-
-    // マスクを適用して人物部分のみを合成
-    for (let i = 0; i < mask.length; i++) {
-      const maskValue = mask[i]
-      if (maskValue > 0.5) {
-        // 人物部分
-        const pixelIndex = i * 4
-        currentImageData.data[pixelIndex] = videoImageData.data[pixelIndex]
-        currentImageData.data[pixelIndex + 1] = videoImageData.data[pixelIndex + 1]
-        currentImageData.data[pixelIndex + 2] = videoImageData.data[pixelIndex + 2]
-        currentImageData.data[pixelIndex + 3] = videoImageData.data[pixelIndex + 3]
+      // 白い背景
+      backgroundImageData = ctx.createImageData(width, height)
+      for (let i = 0; i < backgroundImageData.data.length; i += 4) {
+        backgroundImageData.data[i] = 255     // R
+        backgroundImageData.data[i + 1] = 255 // G
+        backgroundImageData.data[i + 2] = 255 // B
+        backgroundImageData.data[i + 3] = 255 // A
       }
     }
 
-    ctx.putImageData(currentImageData, 0, 0)
+    // 出力用ImageData
+    const outputImageData = ctx.createImageData(width, height)
+
+    // マスクを適用して合成
+    for (let i = 0; i < mask.length; i++) {
+      const maskValue = mask[i] // 0 = 背景, 1 = 人物
+      const pixelIndex = i * 4
+
+      // マスク値に基づいてブレンド（人物部分はビデオ、背景部分は背景画像）
+      outputImageData.data[pixelIndex] =
+        videoImageData.data[pixelIndex] * maskValue +
+        backgroundImageData.data[pixelIndex] * (1 - maskValue)
+      outputImageData.data[pixelIndex + 1] =
+        videoImageData.data[pixelIndex + 1] * maskValue +
+        backgroundImageData.data[pixelIndex + 1] * (1 - maskValue)
+      outputImageData.data[pixelIndex + 2] =
+        videoImageData.data[pixelIndex + 2] * maskValue +
+        backgroundImageData.data[pixelIndex + 2] * (1 - maskValue)
+      outputImageData.data[pixelIndex + 3] = 255
+    }
+
+    ctx.putImageData(outputImageData, 0, 0)
+  } else {
+    // セグメンテーション結果がない場合はビデオをそのまま表示
+    ctx.drawImage(videoElement, 0, 0, width, height)
   }
 }
