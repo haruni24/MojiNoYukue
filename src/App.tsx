@@ -133,14 +133,50 @@ function App() {
   const fpsWindowStartRef = useRef<number>(0)
   const lastFrameMsRef = useRef<number>(0)
 
+  // カメラデバイス関連
+  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([])
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('')
+
+  // カメラデバイスリストの取得
+  useEffect(() => {
+    const getDevices = async () => {
+      try {
+        // 最初にカメラへのアクセス許可を取得（デバイスラベルを取得するために必要）
+        await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const videoDevices = devices.filter(device => device.kind === 'videoinput')
+        setCameraDevices(videoDevices)
+        if (videoDevices.length > 0 && !selectedCameraId) {
+          setSelectedCameraId(videoDevices[0].deviceId)
+        }
+      } catch (err) {
+        console.error('デバイスリストの取得エラー:', err)
+      }
+    }
+    getDevices()
+
+    // デバイス変更時にリストを更新
+    navigator.mediaDevices.addEventListener('devicechange', getDevices)
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', getDevices)
+    }
+  }, [selectedCameraId])
+
   // カメラの初期化
   useEffect(() => {
+    if (!selectedCameraId) return
+
     let cancelled = false
 
     const startCamera = async () => {
+      // 既存のストリームを停止
+      streamRef.current?.getTracks().forEach(track => track.stop())
+      setVideoReady(false)
+
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
+            deviceId: { exact: selectedCameraId },
             width: { ideal: 1280 },
             height: { ideal: 720 }
           },
@@ -179,6 +215,7 @@ function App() {
         }
 
         attach()
+        setError('')
       } catch (err) {
         console.error('カメラへのアクセスエラー:', err)
         setError('カメラにアクセスできませんでした。カメラの使用を許可してください。')
@@ -196,7 +233,7 @@ function App() {
       }
       setVideoReady(false)
     }
-  }, [])
+  }, [selectedCameraId])
 
   // セグメンテーション処理
   useEffect(() => {
@@ -553,6 +590,21 @@ function App() {
 
         {/* 上部UI */}
         <div className="overlay-ui overlay-ui--top">
+          {/* カメラ選択バー */}
+          {cameraDevices.length > 1 && (
+            <div className="camera-selector">
+              {cameraDevices.map((device, index) => (
+                <button
+                  key={device.deviceId}
+                  onClick={() => setSelectedCameraId(device.deviceId)}
+                  className={`camera-selector__button ${selectedCameraId === device.deviceId ? 'camera-selector__button--active' : ''}`}
+                >
+                  {device.label || `カメラ ${index + 1}`}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="controls">
             <button onClick={handleUploadClick} className="glass-button">
               背景画像をアップロード
