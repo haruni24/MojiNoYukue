@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import { useImageSegmentation, applyBackgroundReplacement } from './useImageSegmentation'
+import { CommentOverlay } from './features/comments/CommentOverlay'
 
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -14,6 +15,8 @@ function App() {
 
   // カメラの初期化
   useEffect(() => {
+    const videoElement = videoRef.current
+
     const startCamera = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -24,13 +27,21 @@ function App() {
           audio: false
         })
 
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
+        if (videoElement) {
+          videoElement.srcObject = stream
 
-          // ビデオのメタデータが読み込まれたらvideoReadyをtrueに設定
-          videoRef.current.onloadedmetadata = () => {
+          // メタデータ/初回フレームが読み込めたタイミングで処理開始
+          videoElement.onloadedmetadata = () => {
             setVideoReady(true)
           }
+          videoElement.onloadeddata = () => {
+            setVideoReady(true)
+          }
+
+          // autoplayが効かない環境でも再生を試みる
+          videoElement.play().catch((playError) => {
+            console.warn('カメラ映像の再生開始に失敗しました:', playError)
+          })
         }
       } catch (err) {
         console.error('カメラへのアクセスエラー:', err)
@@ -41,8 +52,8 @@ function App() {
     startCamera()
 
     return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream
+      if (videoElement?.srcObject) {
+        const stream = videoElement.srcObject as MediaStream
         stream.getTracks().forEach(track => track.stop())
       }
       if (animationFrameRef.current) {
@@ -56,29 +67,21 @@ function App() {
   useEffect(() => {
     if (!segmenter || !videoRef.current || !canvasRef.current || !videoReady) return
 
-    let lastVideoTime = -1
-
-    const processFrame = () => {
+    const processFrame = (timestamp: number) => {
       if (!videoRef.current || !canvasRef.current || !segmenter) return
 
-      const currentTime = videoRef.current.currentTime
-      if (currentTime !== lastVideoTime) {
-        lastVideoTime = currentTime
-        const timestamp = performance.now()
-
-        applyBackgroundReplacement(
-          videoRef.current,
-          canvasRef.current,
-          segmenter,
-          backgroundImage,
-          timestamp
-        )
-      }
+      applyBackgroundReplacement(
+        videoRef.current,
+        canvasRef.current,
+        segmenter,
+        backgroundImage,
+        timestamp
+      )
 
       animationFrameRef.current = requestAnimationFrame(processFrame)
     }
 
-    processFrame()
+    animationFrameRef.current = requestAnimationFrame(processFrame)
 
     return () => {
       if (animationFrameRef.current) {
@@ -148,13 +151,15 @@ function App() {
               muted
               style={{
                 position: 'absolute',
-                width: '1px',
-                height: '1px',
-                opacity: 0,
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                opacity: 0.0001,
                 pointerEvents: 'none'
               }}
             />
             <canvas ref={canvasRef} className="canvas" />
+            <CommentOverlay />
           </div>
         </>
       )}

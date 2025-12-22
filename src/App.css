@@ -59,13 +59,16 @@ h1 {
   max-width: 1280px;
   display: flex;
   justify-content: center;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
 .canvas {
+  display: block;
   width: 100%;
   height: auto;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  border-radius: inherit;
 }
 
 .error {
