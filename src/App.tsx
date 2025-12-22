@@ -533,86 +533,6 @@ function App() {
 
   return (
     <div className="app">
-      <h1>背景合成カメラ</h1>
-
-      {(error || segmenterError) && (
-        <div className="error">{error || segmenterError}</div>
-      )}
-      {isLoading && (
-        <div className="loading">MediaPipeを読み込んでいます...（ロード中も映像は表示されます）</div>
-      )}
-
-      <div className="controls">
-        <button onClick={handleUploadClick} className="upload-button">
-          背景画像をアップロード
-        </button>
-        {backgroundImage && (
-          <button onClick={handleRemoveBackground} className="remove-button">
-            背景を削除
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => setDebugEnabled((prev) => !prev)}
-          className="debug-button"
-        >
-          {debugEnabled ? 'デバッグON' : 'デバッグOFF'}
-        </button>
-        {debugEnabled && (
-          <button type="button" onClick={handleCaptureSnapshot} className="debug-button">
-            スナップショット
-          </button>
-        )}
-      </div>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleImageUpload}
-        style={{ display: 'none' }}
-      />
-
-      {debugEnabled && (
-        <details className="debug-panel" open>
-          <summary className="debug-panel__summary">デバッグパネル</summary>
-          <div className="debug-panel__row">
-            <label className="debug-panel__field">
-              表示モード
-              <select value={renderMode} onChange={(e) => setRenderMode(e.target.value as RenderMode)}>
-                <option value="composite">合成（通常）</option>
-                <option value="raw">元映像のみ</option>
-                <option value="mask">マスクのみ</option>
-                <option value="background">背景のみ</option>
-                <option value="test">テストパターン</option>
-              </select>
-            </label>
-
-            <label className="debug-panel__field">
-              マスク
-              <select
-                value={selectedMaskIndex === 'auto' ? 'auto' : String(selectedMaskIndex)}
-                onChange={(e) => {
-                  const value = e.target.value
-                  setSelectedMaskIndex(value === 'auto' ? 'auto' : Number(value))
-                }}
-                disabled={!segmenter}
-              >
-                <option value="auto">auto</option>
-                {maskIndexOptions.map(({ index, label }) => (
-                  <option key={index} value={String(index)}>
-                    {label ? `${index}: ${label}` : index}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <pre className="debug-panel__log">{debugText || '...'}</pre>
-          {debugSnapshot && <pre className="debug-panel__snapshot">{JSON.stringify(debugSnapshot, null, 2)}</pre>}
-        </details>
-      )}
-
       <div className="video-container">
         <video
           ref={videoRef}
@@ -630,6 +550,92 @@ function App() {
         />
         <canvas ref={canvasRef} className="canvas" />
         <CommentOverlay />
+
+        {/* 上部UI */}
+        <div className="overlay-ui overlay-ui--top">
+          <div className="controls">
+            <button onClick={handleUploadClick} className="glass-button">
+              背景画像をアップロード
+            </button>
+            {backgroundImage && (
+              <button onClick={handleRemoveBackground} className="glass-button glass-button--danger">
+                背景を削除
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setDebugEnabled((prev) => !prev)}
+              className="glass-button glass-button--secondary"
+            >
+              {debugEnabled ? 'デバッグON' : 'デバッグOFF'}
+            </button>
+          </div>
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleImageUpload}
+          style={{ display: 'none' }}
+        />
+
+        {/* 下部UI（ステータス・デバッグ用） */}
+        <div className="overlay-ui overlay-ui--bottom">
+          {(error || segmenterError) && (
+            <div className="error">{error || segmenterError}</div>
+          )}
+          {isLoading && (
+            <div className="loading">MediaPipeを読み込んでいます...</div>
+          )}
+
+          {debugEnabled && (
+            <>
+              <div className="controls">
+                <button type="button" onClick={handleCaptureSnapshot} className="glass-button glass-button--secondary">
+                  スナップショット
+                </button>
+              </div>
+              <details className="debug-panel" open>
+                <summary className="debug-panel__summary">デバッグパネル</summary>
+                <div className="debug-panel__row">
+                  <label className="debug-panel__field">
+                    表示モード
+                    <select value={renderMode} onChange={(e) => setRenderMode(e.target.value as RenderMode)}>
+                      <option value="composite">合成（通常）</option>
+                      <option value="raw">元映像のみ</option>
+                      <option value="mask">マスクのみ</option>
+                      <option value="background">背景のみ</option>
+                      <option value="test">テストパターン</option>
+                    </select>
+                  </label>
+
+                  <label className="debug-panel__field">
+                    マスク
+                    <select
+                      value={selectedMaskIndex === 'auto' ? 'auto' : String(selectedMaskIndex)}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        setSelectedMaskIndex(value === 'auto' ? 'auto' : Number(value))
+                      }}
+                      disabled={!segmenter}
+                    >
+                      <option value="auto">auto</option>
+                      {maskIndexOptions.map(({ index, label }) => (
+                        <option key={index} value={String(index)}>
+                          {label ? `${index}: ${label}` : index}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <pre className="debug-panel__log">{debugText || '...'}</pre>
+                {debugSnapshot && <pre className="debug-panel__snapshot">{JSON.stringify(debugSnapshot, null, 2)}</pre>}
+              </details>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
