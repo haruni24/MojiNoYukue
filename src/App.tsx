@@ -1,21 +1,141 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { useImageSegmentation, applyBackgroundReplacement } from './useImageSegmentation'
 import { CommentOverlay } from './features/comments/CommentOverlay'
+
+type RenderMode = 'composite' | 'raw' | 'mask' | 'background' | 'test'
+
+type DebugSnapshot = {
+  at: string
+  renderMode: RenderMode
+  video: {
+    readyState: number
+    paused: boolean
+    ended: boolean
+    currentTime: number
+    videoWidth: number
+    videoHeight: number
+  }
+  canvas: {
+    width: number
+    height: number
+    cssWidth: number
+    cssHeight: number
+  }
+  stream?: {
+    active: boolean
+    track: {
+      readyState: MediaStreamTrack['readyState']
+      enabled: boolean
+      muted: boolean
+      settings: MediaTrackSettings
+    }
+  }
+  segmenter?: {
+    loaded: boolean
+    labels: string[]
+    confidenceMaskCount?: number
+    selectedMaskIndex?: number
+    maskWidth?: number
+    maskHeight?: number
+    maskStats?: {
+      min: number
+      max: number
+      mean: number
+      nanCount: number
+      sample: number[]
+    }
+  }
+  errors: string[]
+}
+
+const getInitialDebugEnabled = () => {
+  if (typeof window === 'undefined') return false
+  return new URLSearchParams(window.location.search).has('debug')
+}
+
+const ensureCanvasSize = (canvas: HTMLCanvasElement, width: number, height: number) => {
+  if (width <= 0 || height <= 0) return
+  if (canvas.width !== width) canvas.width = width
+  if (canvas.height !== height) canvas.height = height
+}
+
+const drawTestPattern = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
+  const { width, height } = canvas
+  ctx.save()
+  ctx.fillStyle = '#f3f4f6'
+  ctx.fillRect(0, 0, width, height)
+
+  const tile = 24
+  for (let y = 0; y < height; y += tile) {
+    for (let x = 0; x < width; x += tile) {
+      const shouldFill = ((x / tile) | 0) % 2 === ((y / tile) | 0) % 2
+      if (!shouldFill) continue
+      ctx.fillStyle = 'rgba(17, 24, 39, 0.06)'
+      ctx.fillRect(x, y, tile, tile)
+    }
+  }
+
+  ctx.strokeStyle = 'rgba(37, 99, 235, 0.55)'
+  ctx.lineWidth = Math.max(2, Math.min(6, width / 240))
+  ctx.beginPath()
+  ctx.moveTo(0, 0)
+  ctx.lineTo(width, height)
+  ctx.moveTo(width, 0)
+  ctx.lineTo(0, height)
+  ctx.stroke()
+
+  ctx.fillStyle = '#111827'
+  ctx.font = `${Math.max(14, Math.min(26, width / 32))}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace`
+  ctx.fillText('CANVAS TEST PATTERN', Math.max(16, width / 40), Math.max(38, height / 14))
+  ctx.restore()
+}
+
+const drawStatusPlaceholder = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, lines: string[]) => {
+  const { width, height } = canvas
+  ctx.save()
+  ctx.fillStyle = '#f8fafc'
+  ctx.fillRect(0, 0, width, height)
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.08)'
+  ctx.fillRect(0, 0, width, Math.max(52, height * 0.12))
+
+  ctx.fillStyle = '#0f172a'
+  ctx.font = `${Math.max(13, Math.min(18, width / 56))}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace`
+  const startX = Math.max(14, width / 40)
+  let y = Math.max(30, height * 0.07)
+  const lineHeight = Math.max(18, Math.min(26, width / 60))
+  for (const line of lines.slice(0, 8)) {
+    ctx.fillText(line, startX, y)
+    y += lineHeight
+  }
+  ctx.restore()
+}
 
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
   const [error, setError] = useState<string>('')
   const [videoReady, setVideoReady] = useState(false)
   const [backgroundImage, setBackgroundImage] = useState<HTMLImageElement | null>(null)
   const { segmenter, isLoading, error: segmenterError } = useImageSegmentation()
   const animationFrameRef = useRef<number | undefined>(undefined)
+  const [debugEnabled, setDebugEnabled] = useState(getInitialDebugEnabled)
+  const [renderMode, setRenderMode] = useState<RenderMode>('composite')
+  const [selectedMaskIndex, setSelectedMaskIndex] = useState<number | 'auto'>('auto')
+  const [debugText, setDebugText] = useState<string>('')
+  const debugTextRef = useRef<string>('')
+  const [debugSnapshot, setDebugSnapshot] = useState<DebugSnapshot | null>(null)
+  const lastUiUpdateRef = useRef<number>(0)
+  const fpsRef = useRef<number>(0)
+  const frameCountRef = useRef<number>(0)
+  const fpsWindowStartRef = useRef<number>(0)
+  const lastFrameMsRef = useRef<number>(0)
 
   // カメラの初期化
   useEffect(() => {
-    const videoElement = videoRef.current
+    let cancelled = false
 
     const startCamera = async () => {
       try {
@@ -27,22 +147,38 @@ function App() {
           audio: false
         })
 
-        if (videoElement) {
+        if (cancelled) {
+          stream.getTracks().forEach(track => track.stop())
+          return
+        }
+
+        streamRef.current = stream
+
+        const attach = () => {
+          if (cancelled) return
+          const videoElement = videoRef.current
+          if (!videoElement) {
+            requestAnimationFrame(attach)
+            return
+          }
+
           videoElement.srcObject = stream
 
           // メタデータ/初回フレームが読み込めたタイミングで処理開始
-          videoElement.onloadedmetadata = () => {
+          const markReady = () => {
             setVideoReady(true)
           }
-          videoElement.onloadeddata = () => {
-            setVideoReady(true)
-          }
+          videoElement.onloadedmetadata = markReady
+          videoElement.onloadeddata = markReady
+          videoElement.onplaying = markReady
 
           // autoplayが効かない環境でも再生を試みる
           videoElement.play().catch((playError) => {
             console.warn('カメラ映像の再生開始に失敗しました:', playError)
           })
         }
+
+        attach()
       } catch (err) {
         console.error('カメラへのアクセスエラー:', err)
         setError('カメラにアクセスできませんでした。カメラの使用を許可してください。')
@@ -52,10 +188,9 @@ function App() {
     startCamera()
 
     return () => {
-      if (videoElement?.srcObject) {
-        const stream = videoElement.srcObject as MediaStream
-        stream.getTracks().forEach(track => track.stop())
-      }
+      cancelled = true
+      streamRef.current?.getTracks().forEach(track => track.stop())
+      streamRef.current = null
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)
       }
@@ -65,18 +200,156 @@ function App() {
 
   // セグメンテーション処理
   useEffect(() => {
-    if (!segmenter || !videoRef.current || !canvasRef.current || !videoReady) return
+    const videoElement = videoRef.current
+    const canvasElement = canvasRef.current
+    if (!videoElement || !canvasElement) return
+
+    const ctx = canvasElement.getContext('2d')
+    if (!ctx) return
+
+    const drawMask = (timestamp: number) => {
+      if (!segmenter) return false
+      if (videoElement.readyState < 2 || videoElement.videoWidth === 0 || videoElement.videoHeight === 0) return false
+
+      const result = segmenter.segmentForVideo(videoElement, timestamp)
+      if (!result?.confidenceMasks?.length) return false
+
+      const maskCount = result.confidenceMasks.length
+      const labels = segmenter.getLabels?.() ?? []
+
+      const pickForegroundIndex = () => {
+        if (selectedMaskIndex !== 'auto') return Math.max(0, Math.min(selectedMaskIndex, maskCount - 1))
+        if (labels.length !== maskCount) return maskCount - 1
+        const lower = labels.map(label => label.toLowerCase())
+        const preferred = lower.findIndex(label =>
+          label.includes('person') || label.includes('foreground') || label.includes('selfie')
+        )
+        if (preferred !== -1) return preferred
+        const background = lower.findIndex(label => label.includes('background'))
+        if (background !== -1 && maskCount === 2) return background === 0 ? 1 : 0
+        return maskCount - 1
+      }
+
+      const maskIndex = pickForegroundIndex()
+      const selectedMask = result.confidenceMasks[maskIndex]
+      const maskWidth = selectedMask.width
+      const maskHeight = selectedMask.height
+      const mask = selectedMask.getAsFloat32Array()
+      if (maskWidth <= 0 || maskHeight <= 0 || mask.length === 0) return false
+
+      const maskCanvas: HTMLCanvasElement | OffscreenCanvas =
+        typeof OffscreenCanvas === 'undefined'
+          ? Object.assign(document.createElement('canvas'), { width: maskWidth, height: maskHeight })
+          : new OffscreenCanvas(maskWidth, maskHeight)
+      const maskCtx = maskCanvas.getContext('2d')
+      if (!maskCtx) return false
+
+      const imageData = maskCtx.createImageData(maskWidth, maskHeight)
+      const data = imageData.data
+      for (let i = 0; i < mask.length; i++) {
+        let value = mask[i]
+        if (!Number.isFinite(value)) value = 0
+        if (value < 0) value = 0
+        if (value > 1) value = 1
+        const gray = Math.round(value * 255)
+        const index = i * 4
+        data[index] = gray
+        data[index + 1] = gray
+        data[index + 2] = gray
+        data[index + 3] = 255
+      }
+      maskCtx.putImageData(imageData, 0, 0)
+
+      ensureCanvasSize(canvasElement, videoElement.videoWidth, videoElement.videoHeight)
+      ctx.save()
+      ctx.imageSmoothingEnabled = false
+      ctx.clearRect(0, 0, canvasElement.width, canvasElement.height)
+      ctx.drawImage(maskCanvas as unknown as CanvasImageSource, 0, 0, canvasElement.width, canvasElement.height)
+      ctx.restore()
+      return true
+    }
 
     const processFrame = (timestamp: number) => {
-      if (!videoRef.current || !canvasRef.current || !segmenter) return
+      const frameStart = performance.now()
 
-      applyBackgroundReplacement(
-        videoRef.current,
-        canvasRef.current,
-        segmenter,
-        backgroundImage,
-        timestamp
-      )
+      const videoIsReady =
+        videoElement.readyState >= 2 && videoElement.videoWidth > 0 && videoElement.videoHeight > 0
+
+      if (!videoIsReady) {
+        if (canvasElement.width === 0 || canvasElement.height === 0) {
+          ensureCanvasSize(canvasElement, 640, 360)
+        }
+        drawStatusPlaceholder(ctx, canvasElement, [
+          'VIDEO NOT READY',
+          `readyState=${videoElement.readyState} paused=${videoElement.paused} ended=${videoElement.ended}`,
+          `videoWidth=${videoElement.videoWidth} videoHeight=${videoElement.videoHeight}`,
+          `segmenter=${segmenter ? 'ready' : isLoading ? 'loading' : 'none'} videoReady(state)=${videoReady}`,
+          `mode=${renderMode}${debugEnabled ? ' (debug)' : ''}`
+        ])
+      } else if (renderMode === 'test') {
+        ensureCanvasSize(canvasElement, videoElement.videoWidth, videoElement.videoHeight)
+        drawTestPattern(ctx, canvasElement)
+      } else if (renderMode === 'background') {
+        ensureCanvasSize(canvasElement, videoElement.videoWidth, videoElement.videoHeight)
+        ctx.clearRect(0, 0, canvasElement.width, canvasElement.height)
+        if (backgroundImage) {
+          ctx.drawImage(backgroundImage, 0, 0, canvasElement.width, canvasElement.height)
+        } else {
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(0, 0, canvasElement.width, canvasElement.height)
+        }
+      } else if (renderMode === 'raw' || !segmenter) {
+        ensureCanvasSize(canvasElement, videoElement.videoWidth, videoElement.videoHeight)
+        ctx.clearRect(0, 0, canvasElement.width, canvasElement.height)
+        ctx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height)
+      } else if (renderMode === 'mask') {
+        const ok = drawMask(timestamp)
+        if (!ok) {
+          ensureCanvasSize(canvasElement, videoElement.videoWidth, videoElement.videoHeight)
+          drawStatusPlaceholder(ctx, canvasElement, [
+            'MASK DRAW FAILED',
+            `segmenter=${segmenter ? 'ready' : 'none'} confidenceMasks=0?`,
+            `mode=${renderMode}`
+          ])
+        }
+      } else {
+        applyBackgroundReplacement(videoElement, canvasElement, segmenter, backgroundImage, timestamp)
+      }
+
+      const frameEnd = performance.now()
+      lastFrameMsRef.current = frameEnd - frameStart
+
+      frameCountRef.current += 1
+      if (fpsWindowStartRef.current === 0) {
+        fpsWindowStartRef.current = timestamp
+      } else if (timestamp - fpsWindowStartRef.current >= 1000) {
+        fpsRef.current = (frameCountRef.current * 1000) / (timestamp - fpsWindowStartRef.current)
+        frameCountRef.current = 0
+        fpsWindowStartRef.current = timestamp
+      }
+
+      if (debugEnabled && timestamp - lastUiUpdateRef.current >= 250) {
+        const canvasRect = canvasElement.getBoundingClientRect()
+        const labels = segmenter?.getLabels?.() ?? []
+        const track = streamRef.current?.getVideoTracks?.()?.[0]
+        const lines = [
+          `mode=${renderMode} fps=${fpsRef.current.toFixed(1)} frameMs=${lastFrameMsRef.current.toFixed(1)}`,
+          `video: readyState=${videoElement.readyState} paused=${videoElement.paused} time=${videoElement.currentTime.toFixed(3)}`,
+          `video: ${videoElement.videoWidth}x${videoElement.videoHeight} (ready=${videoIsReady} state(videoReady)=${videoReady})`,
+          `canvas: ${canvasElement.width}x${canvasElement.height} css=${Math.round(canvasRect.width)}x${Math.round(canvasRect.height)}`,
+          `segmenter: ${segmenter ? 'ready' : isLoading ? 'loading' : 'none'} labels=${labels.length}`,
+          track
+            ? `track: readyState=${track.readyState} enabled=${track.enabled} muted=${track.muted} settings=${JSON.stringify(track.getSettings())}`
+            : 'track: none'
+        ]
+
+        const nextText = lines.join('\n')
+        if (debugTextRef.current !== nextText) {
+          debugTextRef.current = nextText
+          setDebugText(nextText)
+        }
+        lastUiUpdateRef.current = timestamp
+      }
 
       animationFrameRef.current = requestAnimationFrame(processFrame)
     }
@@ -88,7 +361,7 @@ function App() {
         cancelAnimationFrame(animationFrameRef.current)
       }
     }
-  }, [segmenter, backgroundImage, videoReady])
+  }, [backgroundImage, debugEnabled, isLoading, renderMode, segmenter, selectedMaskIndex, videoReady])
 
   // 背景画像のアップロード処理
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -114,55 +387,250 @@ function App() {
     setBackgroundImage(null)
   }
 
+  const maskIndexOptions = useMemo(() => {
+    const labels = segmenter?.getLabels?.() ?? []
+    const count = labels.length > 0 ? labels.length : 2
+    const optionCount = Math.min(count, 6)
+    return Array.from({ length: optionCount }, (_, index) => ({
+      index,
+      label: labels[index]
+    }))
+  }, [segmenter])
+
+  const handleCaptureSnapshot = () => {
+    const errors: string[] = []
+    const videoElement = videoRef.current
+    const canvasElement = canvasRef.current
+    if (!videoElement || !canvasElement) return
+
+    const canvasRect = canvasElement.getBoundingClientRect()
+    const snapshot: DebugSnapshot = {
+      at: new Date().toISOString(),
+      renderMode,
+      video: {
+        readyState: videoElement.readyState,
+        paused: videoElement.paused,
+        ended: videoElement.ended,
+        currentTime: videoElement.currentTime,
+        videoWidth: videoElement.videoWidth,
+        videoHeight: videoElement.videoHeight
+      },
+      canvas: {
+        width: canvasElement.width,
+        height: canvasElement.height,
+        cssWidth: Math.round(canvasRect.width),
+        cssHeight: Math.round(canvasRect.height)
+      },
+      errors
+    }
+
+    const track = streamRef.current?.getVideoTracks?.()?.[0]
+    if (track) {
+      snapshot.stream = {
+        active: streamRef.current?.active ?? false,
+        track: {
+          readyState: track.readyState,
+          enabled: track.enabled,
+          muted: track.muted,
+          settings: track.getSettings()
+        }
+      }
+    }
+
+    if (segmenter) {
+      const labels = segmenter.getLabels?.() ?? []
+      snapshot.segmenter = { loaded: true, labels }
+
+      try {
+        const videoIsReady =
+          videoElement.readyState >= 2 && videoElement.videoWidth > 0 && videoElement.videoHeight > 0
+        if (!videoIsReady) {
+          errors.push('videoが未準備のためsegmentForVideoをスキップしました')
+        } else {
+          const result = segmenter.segmentForVideo(videoElement, performance.now())
+          const maskCount = result.confidenceMasks?.length ?? 0
+          snapshot.segmenter.confidenceMaskCount = maskCount
+
+          if (maskCount > 0 && result.confidenceMasks) {
+            const pickIndex = () => {
+              if (selectedMaskIndex !== 'auto') return Math.max(0, Math.min(selectedMaskIndex, maskCount - 1))
+              if (labels.length !== maskCount) return maskCount - 1
+              const lower = labels.map(label => label.toLowerCase())
+              const preferred = lower.findIndex(label =>
+                label.includes('person') || label.includes('foreground') || label.includes('selfie')
+              )
+              if (preferred !== -1) return preferred
+              const background = lower.findIndex(label => label.includes('background'))
+              if (background !== -1 && maskCount === 2) return background === 0 ? 1 : 0
+              return maskCount - 1
+            }
+
+            const maskIndex = pickIndex()
+            const selectedMask = result.confidenceMasks[maskIndex]
+            const mask = selectedMask.getAsFloat32Array()
+            const maskWidth = selectedMask.width
+            const maskHeight = selectedMask.height
+
+            snapshot.segmenter.selectedMaskIndex = maskIndex
+            snapshot.segmenter.maskWidth = maskWidth
+            snapshot.segmenter.maskHeight = maskHeight
+
+            if (mask.length > 0) {
+              let min = Number.POSITIVE_INFINITY
+              let max = Number.NEGATIVE_INFINITY
+              let sum = 0
+              let count = 0
+              let nanCount = 0
+              const sample: number[] = []
+
+              const sampleIndices = [
+                0,
+                Math.floor(mask.length / 4),
+                Math.floor(mask.length / 2),
+                Math.floor((mask.length * 3) / 4),
+                mask.length - 1
+              ].filter((index) => index >= 0 && index < mask.length)
+
+              for (const index of sampleIndices) {
+                const value = mask[index]
+                sample.push(Number.isFinite(value) ? Number(value.toFixed(4)) : NaN)
+              }
+
+              for (let i = 0; i < mask.length; i++) {
+                const value = mask[i]
+                if (!Number.isFinite(value)) {
+                  nanCount += 1
+                  continue
+                }
+                if (value < min) min = value
+                if (value > max) max = value
+                sum += value
+                count += 1
+              }
+
+              snapshot.segmenter.maskStats = {
+                min: Number.isFinite(min) ? Number(min.toFixed(6)) : NaN,
+                max: Number.isFinite(max) ? Number(max.toFixed(6)) : NaN,
+                mean: count ? Number((sum / count).toFixed(6)) : NaN,
+                nanCount,
+                sample
+              }
+            }
+          }
+        }
+      } catch (segmentError) {
+        errors.push(`segmentForVideo失敗: ${segmentError instanceof Error ? segmentError.message : String(segmentError)}`)
+      }
+    } else {
+      snapshot.segmenter = { loaded: false, labels: [] }
+    }
+
+    setDebugSnapshot(snapshot)
+    console.groupCollapsed('[debug snapshot]', snapshot.at)
+    console.log(snapshot)
+    console.groupEnd()
+  }
+
   return (
     <div className="app">
       <h1>背景合成カメラ</h1>
 
-      {error || segmenterError ? (
+      {(error || segmenterError) && (
         <div className="error">{error || segmenterError}</div>
-      ) : isLoading ? (
-        <div className="loading">MediaPipeを読み込んでいます...</div>
-      ) : (
-        <>
-          <div className="controls">
-            <button onClick={handleUploadClick} className="upload-button">
-              背景画像をアップロード
-            </button>
-            {backgroundImage && (
-              <button onClick={handleRemoveBackground} className="remove-button">
-                背景を削除
-              </button>
-            )}
-          </div>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleImageUpload}
-            style={{ display: 'none' }}
-          />
-
-          <div className="video-container">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              style={{
-                position: 'absolute',
-                inset: 0,
-                width: '100%',
-                height: '100%',
-                opacity: 0.0001,
-                pointerEvents: 'none'
-              }}
-            />
-            <canvas ref={canvasRef} className="canvas" />
-            <CommentOverlay />
-          </div>
-        </>
       )}
+      {isLoading && (
+        <div className="loading">MediaPipeを読み込んでいます...（ロード中も映像は表示されます）</div>
+      )}
+
+      <div className="controls">
+        <button onClick={handleUploadClick} className="upload-button">
+          背景画像をアップロード
+        </button>
+        {backgroundImage && (
+          <button onClick={handleRemoveBackground} className="remove-button">
+            背景を削除
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setDebugEnabled((prev) => !prev)}
+          className="debug-button"
+        >
+          {debugEnabled ? 'デバッグON' : 'デバッグOFF'}
+        </button>
+        {debugEnabled && (
+          <button type="button" onClick={handleCaptureSnapshot} className="debug-button">
+            スナップショット
+          </button>
+        )}
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleImageUpload}
+        style={{ display: 'none' }}
+      />
+
+      {debugEnabled && (
+        <details className="debug-panel" open>
+          <summary className="debug-panel__summary">デバッグパネル</summary>
+          <div className="debug-panel__row">
+            <label className="debug-panel__field">
+              表示モード
+              <select value={renderMode} onChange={(e) => setRenderMode(e.target.value as RenderMode)}>
+                <option value="composite">合成（通常）</option>
+                <option value="raw">元映像のみ</option>
+                <option value="mask">マスクのみ</option>
+                <option value="background">背景のみ</option>
+                <option value="test">テストパターン</option>
+              </select>
+            </label>
+
+            <label className="debug-panel__field">
+              マスク
+              <select
+                value={selectedMaskIndex === 'auto' ? 'auto' : String(selectedMaskIndex)}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setSelectedMaskIndex(value === 'auto' ? 'auto' : Number(value))
+                }}
+                disabled={!segmenter}
+              >
+                <option value="auto">auto</option>
+                {maskIndexOptions.map(({ index, label }) => (
+                  <option key={index} value={String(index)}>
+                    {label ? `${index}: ${label}` : index}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <pre className="debug-panel__log">{debugText || '...'}</pre>
+          {debugSnapshot && <pre className="debug-panel__snapshot">{JSON.stringify(debugSnapshot, null, 2)}</pre>}
+        </details>
+      )}
+
+      <div className="video-container">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            opacity: debugEnabled ? 0.08 : 0.0001,
+            pointerEvents: 'none'
+          }}
+        />
+        <canvas ref={canvasRef} className="canvas" />
+        <CommentOverlay />
+      </div>
     </div>
   )
 }
