@@ -126,6 +126,9 @@ function App() {
   const [audioIsPlaying, setAudioIsPlaying] = useState(false)
   const [audioCurrentTime, setAudioCurrentTime] = useState(0)
   const [audioDuration, setAudioDuration] = useState(0)
+  const [audioOutputDevices, setAudioOutputDevices] = useState<MediaDeviceInfo[]>([])
+  const [selectedAudioOutputId, setSelectedAudioOutputId] = useState<string>('default')
+  const [audioOutputError, setAudioOutputError] = useState<string>('')
   const { segmenter, isLoading, error: segmenterError } = useImageSegmentation()
   const animationFrameRef = useRef<number | undefined>(undefined)
   const [debugEnabled, setDebugEnabled] = useState(getInitialDebugEnabled)
@@ -450,6 +453,42 @@ function App() {
     event.target.value = ''
   }
 
+  const supportsSetSinkId = useMemo(() => {
+    if (typeof window === 'undefined') return false
+    return typeof (HTMLMediaElement.prototype as unknown as { setSinkId?: unknown }).setSinkId === 'function'
+  }, [])
+
+  const refreshAudioOutputs = async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const outputs = devices.filter((device) => device.kind === 'audiooutput')
+      setAudioOutputDevices(outputs)
+      setAudioOutputError('')
+
+      if (outputs.length > 0) {
+        const hasSelected = outputs.some((device) => device.deviceId === selectedAudioOutputId)
+        if (!hasSelected) {
+          const nextId = outputs.some((device) => device.deviceId === 'default') ? 'default' : outputs[0].deviceId
+          setSelectedAudioOutputId(nextId)
+        }
+      }
+    } catch (enumerateError) {
+      console.error('音声出力デバイス取得エラー:', enumerateError)
+      setAudioOutputError(enumerateError instanceof Error ? enumerateError.message : String(enumerateError))
+    }
+  }
+
+  useEffect(() => {
+    refreshAudioOutputs()
+    const handler = () => refreshAudioOutputs()
+    navigator.mediaDevices?.addEventListener?.('devicechange', handler)
+    return () => {
+      navigator.mediaDevices?.removeEventListener?.('devicechange', handler)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     return () => {
       if (audioUrl) URL.revokeObjectURL(audioUrl)
@@ -494,6 +533,33 @@ function App() {
     if (!audio) return
     audio.currentTime = nextTime
     setAudioCurrentTime(nextTime)
+  }
+
+  const handleSelectAudioOutput = async (deviceId: string) => {
+    setSelectedAudioOutputId(deviceId)
+
+    const audio = audioRef.current as unknown as { setSinkId?: (id: string) => Promise<void> }
+    if (!audio?.setSinkId) return
+
+    try {
+      await audio.setSinkId(deviceId)
+      setAudioOutputError('')
+    } catch (sinkError) {
+      console.error('出力デバイス切替エラー:', sinkError)
+      setAudioOutputError(sinkError instanceof Error ? sinkError.message : String(sinkError))
+    }
+  }
+
+  const requestAudioLabelPermission = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      stream.getTracks().forEach((track) => track.stop())
+      await refreshAudioOutputs()
+    } catch (permissionError) {
+      console.error('音声権限取得エラー:', permissionError)
+      setAudioOutputError(permissionError instanceof Error ? permissionError.message : String(permissionError))
+    }
   }
 
   const handleRemoveBackground = () => {
@@ -721,6 +787,35 @@ function App() {
               <div className="audio-player__meta" title={audioFileName || '未選択'}>
                 {audioFileName ? `♪ ${audioFileName}` : 'MP3未選択'}
               </div>
+              <div className="audio-player__outputs">
+                <label className="audio-player__outputLabel">
+                  出力
+                  <select
+                    className="glass-select"
+                    value={selectedAudioOutputId}
+                    onChange={(e) => handleSelectAudioOutput(e.target.value)}
+                    disabled={!supportsSetSinkId || audioOutputDevices.length === 0}
+                    aria-label="音声出力デバイス"
+                  >
+                    {audioOutputDevices.length === 0 ? (
+                      <option value="default">出力デバイスなし</option>
+                    ) : (
+                      audioOutputDevices.map((device, index) => (
+                        <option key={`${device.deviceId}-${index}`} value={device.deviceId}>
+                          {device.label || `出力デバイス ${index + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={requestAudioLabelPermission}
+                  className="glass-button glass-button--secondary glass-button--compact"
+                >
+                  名前を表示
+                </button>
+              </div>
               <div className="controls audio-player__buttons">
                 <button
                   type="button"
@@ -756,6 +851,13 @@ function App() {
               />
               <span className="audio-player__time">{formatTime(audioDuration)}</span>
             </div>
+
+            {!supportsSetSinkId && (
+              <div className="audio-player__hint">
+                この環境では音声出力先の切り替え（Bluetooth含む）が未対応です（`setSinkId`非対応）。
+              </div>
+            )}
+            {audioOutputError && <div className="audio-player__hint audio-player__hint--error">{audioOutputError}</div>}
           </div>
         </div>
 
