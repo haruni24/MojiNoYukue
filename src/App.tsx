@@ -115,10 +115,17 @@ function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const audioInputRef = useRef<HTMLInputElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [error, setError] = useState<string>('')
   const [videoReady, setVideoReady] = useState(false)
   const [backgroundImage, setBackgroundImage] = useState<HTMLImageElement | null>(null)
+  const [audioUrl, setAudioUrl] = useState<string>('')
+  const [audioFileName, setAudioFileName] = useState<string>('')
+  const [audioIsPlaying, setAudioIsPlaying] = useState(false)
+  const [audioCurrentTime, setAudioCurrentTime] = useState(0)
+  const [audioDuration, setAudioDuration] = useState(0)
   const { segmenter, isLoading, error: segmenterError } = useImageSegmentation()
   const animationFrameRef = useRef<number | undefined>(undefined)
   const [debugEnabled, setDebugEnabled] = useState(getInitialDebugEnabled)
@@ -420,6 +427,75 @@ function App() {
     fileInputRef.current?.click()
   }
 
+  const handleAudioUploadClick = () => {
+    audioInputRef.current?.click()
+  }
+
+  const handleAudioUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    const audio = audioRef.current
+    if (audio) {
+      audio.pause()
+      audio.currentTime = 0
+    }
+
+    const nextUrl = URL.createObjectURL(file)
+    setAudioUrl(nextUrl)
+    setAudioFileName(file.name)
+    setAudioCurrentTime(0)
+    setAudioDuration(0)
+    setAudioIsPlaying(false)
+    event.target.value = ''
+  }
+
+  useEffect(() => {
+    return () => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl)
+    }
+  }, [audioUrl])
+
+  const formatTime = (seconds: number) => {
+    if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
+    const total = Math.floor(seconds)
+    const minutes = Math.floor(total / 60)
+    const remain = total % 60
+    return `${minutes}:${String(remain).padStart(2, '0')}`
+  }
+
+  const handleToggleAudioPlayback = async () => {
+    const audio = audioRef.current
+    if (!audioUrl || !audio) return
+
+    try {
+      if (audio.paused || audio.ended) {
+        await audio.play()
+      } else {
+        audio.pause()
+      }
+    } catch (playError) {
+      console.error('音声再生エラー:', playError)
+      setError(playError instanceof Error ? playError.message : String(playError))
+    }
+  }
+
+  const handleStopAudio = () => {
+    const audio = audioRef.current
+    if (!audio) return
+    audio.pause()
+    audio.currentTime = 0
+    setAudioIsPlaying(false)
+    setAudioCurrentTime(0)
+  }
+
+  const handleSeekAudio = (nextTime: number) => {
+    const audio = audioRef.current
+    if (!audio) return
+    audio.currentTime = nextTime
+    setAudioCurrentTime(nextTime)
+  }
+
   const handleRemoveBackground = () => {
     setBackgroundImage(null)
   }
@@ -597,7 +673,7 @@ function App() {
                 <button
                   key={device.deviceId}
                   onClick={() => setSelectedCameraId(device.deviceId)}
-                  className={`camera-selector__button ${selectedCameraId === device.deviceId ? 'camera-selector__button--active' : ''}`}
+                  className={`glass-button camera-selector__button ${selectedCameraId === device.deviceId ? 'camera-selector__button--active' : ''}`}
                 >
                   {device.label || `カメラ ${index + 1}`}
                 </button>
@@ -608,6 +684,9 @@ function App() {
           <div className="controls">
             <button onClick={handleUploadClick} className="glass-button">
               背景画像をアップロード
+            </button>
+            <button type="button" onClick={handleAudioUploadClick} className="glass-button">
+              MP3をアップロード
             </button>
             {backgroundImage && (
               <button onClick={handleRemoveBackground} className="glass-button glass-button--danger">
@@ -622,6 +701,62 @@ function App() {
               {debugEnabled ? 'デバッグON' : 'デバッグOFF'}
             </button>
           </div>
+
+          <div className="audio-player" aria-label="音声プレイヤー">
+            <audio
+              ref={audioRef}
+              src={audioUrl || undefined}
+              preload="metadata"
+              onLoadedMetadata={(e) => {
+                const duration = e.currentTarget.duration
+                setAudioDuration(Number.isFinite(duration) ? duration : 0)
+              }}
+              onTimeUpdate={(e) => setAudioCurrentTime(e.currentTarget.currentTime || 0)}
+              onPlay={() => setAudioIsPlaying(true)}
+              onPause={() => setAudioIsPlaying(false)}
+              onEnded={() => setAudioIsPlaying(false)}
+            />
+
+            <div className="audio-player__row">
+              <div className="audio-player__meta" title={audioFileName || '未選択'}>
+                {audioFileName ? `♪ ${audioFileName}` : 'MP3未選択'}
+              </div>
+              <div className="controls audio-player__buttons">
+                <button
+                  type="button"
+                  onClick={handleToggleAudioPlayback}
+                  className="glass-button glass-button--secondary"
+                  disabled={!audioUrl}
+                >
+                  {audioIsPlaying ? '一時停止' : '再生'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStopAudio}
+                  className="glass-button glass-button--secondary"
+                  disabled={!audioUrl}
+                >
+                  停止
+                </button>
+              </div>
+            </div>
+
+            <div className="audio-player__row audio-player__timeline">
+              <span className="audio-player__time">{formatTime(audioCurrentTime)}</span>
+              <input
+                className="audio-player__slider"
+                type="range"
+                min={0}
+                max={audioDuration || 0}
+                step={0.01}
+                value={audioDuration ? Math.min(audioCurrentTime, audioDuration) : 0}
+                onChange={(e) => handleSeekAudio(Number(e.target.value))}
+                disabled={!audioUrl || !audioDuration}
+                aria-label="再生位置"
+              />
+              <span className="audio-player__time">{formatTime(audioDuration)}</span>
+            </div>
+          </div>
         </div>
 
         <input
@@ -629,6 +764,14 @@ function App() {
           type="file"
           accept="image/*"
           onChange={handleImageUpload}
+          style={{ display: 'none' }}
+        />
+
+        <input
+          ref={audioInputRef}
+          type="file"
+          accept="audio/mpeg,audio/mp3,.mp3"
+          onChange={handleAudioUpload}
           style={{ display: 'none' }}
         />
 

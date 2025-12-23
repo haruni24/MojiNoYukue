@@ -252,33 +252,14 @@
 }
 
 .commentOverlay__submit {
-  border: none;
   border-radius: 999px;
   padding: 0.55rem 0.9rem;
   font-size: 0.95rem;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.95);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.12));
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  cursor: pointer;
-  transition:
-    transform 0.2s ease,
-    background 0.2s ease,
-    opacity 0.2s ease;
-}
-
-.commentOverlay__submit:hover:not(:disabled) {
-  transform: translateY(-1px);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.14));
-}
-
-.commentOverlay__submit:active:not(:disabled) {
-  transform: translateY(0) scale(0.99);
 }
 
 .commentOverlay__submit:disabled {
   opacity: 0.55;
-  cursor: not-allowed;
 }
 
 @media (prefers-reduced-motion: reduce) {

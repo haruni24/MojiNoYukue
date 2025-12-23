@@ -80,7 +80,7 @@ export function CommentOverlay({
         />
         <button
           type="submit"
-          className="commentOverlay__submit"
+          className="glass-button commentOverlay__submit"
           disabled={!text.trim()}
         >
           送信
@@ -89,4 +89,3 @@ export function CommentOverlay({
     </div>
   )
 }
-
