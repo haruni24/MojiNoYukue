@@ -4,36 +4,213 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  gap: 0.75rem;
   padding: 1rem;
   pointer-events: none;
-  --comment-duration: 5200ms;
+  overflow: hidden;
 }
 
-.commentOverlay__stack {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
+/* コメントが散らばるキャンバス */
+.commentOverlay__canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
+/* コメントバブル - ランダム配置 */
 .commentOverlay__bubble {
-  max-width: min(720px, calc(100% - 2rem));
-  padding: 0.6rem 0.9rem;
-  border-radius: 999px;
-  color: rgba(255, 255, 255, 0.95);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  background: rgba(20, 20, 24, 0.38);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  position: absolute;
+  left: var(--comment-x, 50%);
+  top: var(--comment-y, 50%);
+  transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg));
+  max-width: min(500px, 60vw);
+  padding: 0.8rem 1.4rem;
+  border-radius: 16px;
+  color: rgba(255, 255, 255, 0.98);
+  font-weight: 700;
+  font-size: calc(1rem * var(--comment-scale, 1));
+  letter-spacing: 0.03em;
+  background: rgba(20, 20, 28, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 0 60px rgba(255, 255, 255, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
   will-change: transform, opacity, filter;
-  animation: commentOverlay-life var(--comment-duration) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  z-index: 10;
 }
 
+/* アニメーション1: ポップ（拡大して登場） */
+.commentOverlay__bubble--pop {
+  animation: comment-pop var(--comment-duration, 5200ms) cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes comment-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0) rotate(var(--comment-rotation, 0deg));
+    filter: blur(8px);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(calc(var(--comment-scale, 1) * 1.3)) rotate(var(--comment-rotation, 0deg));
+    filter: blur(0);
+  }
+  25% {
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg));
+  }
+  75% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(calc(var(--comment-scale, 1) * 1.5)) rotate(var(--comment-rotation, 0deg));
+    filter: blur(4px);
+  }
+}
+
+/* アニメーション2: バウンス（跳ねる） */
+.commentOverlay__bubble--bounce {
+  animation: comment-bounce var(--comment-duration, 5200ms) ease-out forwards;
+}
+
+@keyframes comment-bounce {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -150%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg));
+  }
+  10% {
+    opacity: 1;
+    transform: translate(-50%, -30%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg));
+  }
+  15% {
+    transform: translate(-50%, -60%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg));
+  }
+  20% {
+    transform: translate(-50%, -40%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg));
+  }
+  25% {
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg));
+  }
+  75% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -100%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg));
+  }
+}
+
+/* アニメーション3: シェイク（揺れる） */
+.commentOverlay__bubble--shake {
+  animation: comment-shake var(--comment-duration, 5200ms) ease-out forwards;
+}
+
+@keyframes comment-shake {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5) rotate(var(--comment-rotation, 0deg));
+    filter: blur(4px);
+  }
+  10% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(calc(var(--comment-rotation, 0deg) - 10deg));
+    filter: blur(0);
+  }
+  12% {
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(calc(var(--comment-rotation, 0deg) + 8deg));
+  }
+  14% {
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(calc(var(--comment-rotation, 0deg) - 6deg));
+  }
+  16% {
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(calc(var(--comment-rotation, 0deg) + 4deg));
+  }
+  18% {
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg));
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(calc(var(--comment-rotation, 0deg) + 20deg));
+  }
+}
+
+/* アニメーション4: フロート（ふわふわ浮く） */
+.commentOverlay__bubble--float {
+  animation: comment-float var(--comment-duration, 5200ms) ease-in-out forwards;
+}
+
+@keyframes comment-float {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg)) translateY(30px);
+    filter: blur(4px);
+  }
+  15% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  20% {
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg)) translateY(-10px);
+  }
+  35% {
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg)) translateY(5px);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg)) translateY(-8px);
+  }
+  65% {
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg)) translateY(3px);
+  }
+  75% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg)) translateY(-5px);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg)) translateY(-40px);
+    filter: blur(2px);
+  }
+}
+
+/* アニメーション5: スピン（回転して登場） */
+.commentOverlay__bubble--spin {
+  animation: comment-spin var(--comment-duration, 5200ms) cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+@keyframes comment-spin {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.3) rotate(calc(var(--comment-rotation, 0deg) - 180deg));
+    filter: blur(6px);
+  }
+  20% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(calc(var(--comment-scale, 1) * 1.1)) rotate(calc(var(--comment-rotation, 0deg) + 10deg));
+    filter: blur(0);
+  }
+  30% {
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg));
+  }
+  75% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(var(--comment-scale, 1)) rotate(var(--comment-rotation, 0deg));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5) rotate(calc(var(--comment-rotation, 0deg) + 90deg));
+    filter: blur(4px);
+  }
+}
+
+/* 入力フォーム */
 .commentOverlay__composer {
   pointer-events: auto;
   width: min(780px, 100%);
@@ -48,6 +225,8 @@
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.25);
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
+  position: relative;
+  z-index: 100;
 }
 
 .commentOverlay__composer:focus-within {
@@ -102,49 +281,16 @@
   cursor: not-allowed;
 }
 
-@keyframes commentOverlay-life {
-  0% {
-    opacity: 0;
-    transform: translate3d(0, 12px, 0) scale(0.98);
-    filter: blur(2px);
-  }
-  12% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
-    filter: blur(0);
-  }
-  80% {
-    opacity: 1;
-    transform: translate3d(0, -6px, 0) scale(1);
-    filter: blur(0);
-  }
-  100% {
-    opacity: 0;
-    transform: translate3d(0, -18px, 0) scale(0.99);
-    filter: blur(1px);
-  }
-}
-
-@keyframes commentOverlay-fade {
-  0% {
-    opacity: 0;
-  }
-  10% {
-    opacity: 1;
-  }
-  90% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .commentOverlay__bubble {
-    animation: commentOverlay-fade var(--comment-duration) linear forwards;
-    filter: none;
-    transform: none;
+    animation: comment-simple var(--comment-duration, 5200ms) linear forwards !important;
+  }
+
+  @keyframes comment-simple {
+    0% { opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { opacity: 0; }
   }
 
   .commentOverlay__submit {
@@ -162,7 +308,8 @@
   }
 
   .commentOverlay__bubble {
-    font-size: 0.95rem;
+    font-size: calc(0.9rem * var(--comment-scale, 1));
+    padding: 0.6rem 1rem;
   }
 
   .commentOverlay__composer {
@@ -173,4 +320,3 @@
     padding: 0.5rem 0.75rem;
   }
 }
-

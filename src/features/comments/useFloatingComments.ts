@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+export type FloatingCommentStyle = {
+  x: number          // 0-100 (%)
+  y: number          // 0-100 (%)
+  scale: number      // 0.8-2.0
+  rotation: number   // -15 to 15 (deg)
+  animation: number  // 0-4 (animation variant)
+}
+
 export type FloatingComment = {
   id: string
   text: string
   createdAt: number
+  style: FloatingCommentStyle
 }
 
 export type UseFloatingCommentsOptions = {
@@ -17,6 +26,14 @@ const defaultIdFactory = () => {
   }
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
+
+const generateRandomStyle = (): FloatingCommentStyle => ({
+  x: 10 + Math.random() * 80,           // 10-90%
+  y: 10 + Math.random() * 60,           // 10-70%
+  scale: 0.9 + Math.random() * 1.2,     // 0.9-2.1
+  rotation: -12 + Math.random() * 24,   // -12 to 12 deg
+  animation: Math.floor(Math.random() * 5), // 0-4
+})
 
 export function useFloatingComments(options: UseFloatingCommentsOptions = {}) {
   const lifetimeMs = options.lifetimeMs ?? 5200
@@ -49,7 +66,8 @@ export function useFloatingComments(options: UseFloatingCommentsOptions = {}) {
 
       const id = idFactory()
       const createdAt = Date.now()
-      setComments((prev) => [...prev, { id, text: normalized, createdAt }])
+      const style = generateRandomStyle()
+      setComments((prev) => [...prev, { id, text: normalized, createdAt, style }])
 
       const timerId = window.setTimeout(() => {
         removeComment(id)
