@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './App.css'
 
 // Features
 import { useCamera, CameraSelector } from './features/camera'
-import { useAudioPlayer, useAudioOutputDevices, AudioPlayer } from './features/audio-player'
+import { useAudioOutputDevices, AudioPlayerPanel } from './features/audio-player'
 import { useDebug, DebugPanel, type RenderMode } from './features/debug'
 import { useBackgroundImage } from './features/background'
 import { CommentOverlay } from './features/comments/CommentOverlay'
@@ -20,11 +20,21 @@ function App() {
 
   // Feature hooks
   const camera = useCamera()
-  const audioPlayer = useAudioPlayer()
   const audioOutput = useAudioOutputDevices()
   const debug = useDebug()
   const background = useBackgroundImage()
   const { segmenter, isLoading, error: segmenterError } = useImageSegmentation()
+  const [audioPanels, setAudioPanels] = useState<number[]>(() => [1])
+  const [nextAudioPanelId, setNextAudioPanelId] = useState(2)
+
+  const addAudioPanel = () => {
+    setAudioPanels((prev) => [...prev, nextAudioPanelId])
+    setNextAudioPanelId((prev) => prev + 1)
+  }
+
+  const removeAudioPanel = (panelId: number) => {
+    setAudioPanels((prev) => prev.filter((id) => id !== panelId))
+  }
 
   // セグメンテーション処理
   useEffect(() => {
@@ -219,8 +229,8 @@ function App() {
             <button onClick={background.triggerUpload} className="glass-button">
               背景画像をアップロード
             </button>
-            <button type="button" onClick={audioPlayer.triggerUpload} className="glass-button">
-              MP3をアップロード
+            <button type="button" onClick={addAudioPanel} className="glass-button">
+              音声プレイヤー追加
             </button>
             {background.image && (
               <button onClick={background.remove} className="glass-button glass-button--danger">
@@ -236,27 +246,18 @@ function App() {
             </button>
           </div>
 
-          <AudioPlayer
-            audioRef={audioPlayer.audioRef}
-            url={audioPlayer.url}
-            fileName={audioPlayer.fileName}
-            isPlaying={audioPlayer.isPlaying}
-            currentTime={audioPlayer.currentTime}
-            duration={audioPlayer.duration}
-            outputDevices={audioOutput.devices}
-            selectedOutputId={audioOutput.selectedDeviceId}
-            supportsSetSinkId={audioOutput.supportsSetSinkId}
-            outputError={audioOutput.error}
-            formatTime={audioPlayer.formatTime}
-            onTogglePlayback={audioPlayer.togglePlayback}
-            onStop={audioPlayer.stop}
-            onSeek={audioPlayer.seek}
-            onSelectOutput={(deviceId) => audioOutput.selectDevice(deviceId, audioPlayer.audioRef.current)}
-            onRequestPermission={audioOutput.requestLabelPermission}
-            onLoadedMetadata={audioPlayer.handleLoadedMetadata}
-            onTimeUpdate={audioPlayer.handleTimeUpdate}
-            onPlayStateChange={audioPlayer.handlePlayStateChange}
-          />
+          <div className="audio-player-stack">
+            {audioPanels.map((panelId) => (
+              <AudioPlayerPanel
+                key={panelId}
+                outputDevices={audioOutput.devices}
+                outputError={audioOutput.error}
+                isOutputLoading={audioOutput.isLoading}
+                onRefreshOutputs={audioOutput.refreshDevices}
+                onRemove={audioPanels.length > 1 ? () => removeAudioPanel(panelId) : undefined}
+              />
+            ))}
+          </div>
         </div>
 
         <input
@@ -264,14 +265,6 @@ function App() {
           type="file"
           accept="image/*"
           onChange={background.handleUpload}
-          style={{ display: 'none' }}
-        />
-
-        <input
-          ref={audioPlayer.fileInputRef}
-          type="file"
-          accept="audio/mpeg,audio/mp3,.mp3"
-          onChange={audioPlayer.handleUpload}
           style={{ display: 'none' }}
         />
 

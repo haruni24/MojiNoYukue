@@ -1,35 +1,64 @@
+import { invoke } from '@tauri-apps/api/core'
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 
 export type UseAudioPlayerOptions = {
   onError?: (error: string) => void
+  initialOutputId?: string
+  pollIntervalMs?: number
 }
 
 export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
-  const audioRef = useRef<HTMLAudioElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [url, setUrl] = useState<string>('')
+  const playerIdRef = useRef<number | null>(null)
   const [fileName, setFileName] = useState<string>('')
+  const [playerId, setPlayerId] = useState<number | null>(null)
+  const [selectedOutputId, setSelectedOutputId] = useState<string>(options.initialOutputId ?? 'default')
   const [isPlaying, setIsPlaying] = useState(false)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
+  const [hasAudio, setHasAudio] = useState(false)
+  const [error, setError] = useState<string>('')
 
-  const handleUpload = (event: ChangeEvent<HTMLInputElement>) => {
+  type PlayerState = {
+    player_id: number
+    device_id: string
+    file_name: string
+    has_audio: boolean
+    is_playing: boolean
+    is_paused: boolean
+    is_empty: boolean
+  }
+
+  const applyState = (state: PlayerState) => {
+    setSelectedOutputId(state.device_id || 'default')
+    setFileName(state.file_name || '')
+    setHasAudio(Boolean(state.has_audio))
+    setIsPlaying(Boolean(state.is_playing))
+  }
+
+  const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
-
-    const audio = audioRef.current
-    if (audio) {
-      audio.pause()
-      audio.currentTime = 0
+    if (!playerId) {
+      options.onError?.('プレイヤー初期化中です')
+      return
     }
 
-    const nextUrl = URL.createObjectURL(file)
-    setUrl(nextUrl)
-    setFileName(file.name)
-    setCurrentTime(0)
-    setDuration(0)
-    setIsPlaying(false)
-    event.target.value = ''
+    try {
+      const bytes = Array.from(new Uint8Array(await file.arrayBuffer()))
+      const state = await invoke<PlayerState>('audio_load_mp3', {
+        playerId,
+        bytes,
+        fileName: file.name,
+      })
+      applyState(state)
+      setError('')
+    } catch (invokeError) {
+      console.error('MP3ロードエラー:', invokeError)
+      const message = invokeError instanceof Error ? invokeError.message : String(invokeError)
+      setError(message)
+      options.onError?.(message)
+    } finally {
+      event.target.value = ''
+    }
   }
 
   const triggerUpload = () => {
@@ -37,80 +66,139 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
   }
 
   const togglePlayback = async () => {
-    const audio = audioRef.current
-    if (!url || !audio) return
+    if (!playerId) return
 
     try {
-      if (audio.paused || audio.ended) {
-        await audio.play()
-      } else {
-        audio.pause()
-      }
-    } catch (playError) {
-      console.error('音声再生エラー:', playError)
-      options.onError?.(playError instanceof Error ? playError.message : String(playError))
+      const state = await invoke<PlayerState>('audio_toggle_playback', { playerId })
+      applyState(state)
+      setError('')
+    } catch (invokeError) {
+      console.error('音声再生エラー:', invokeError)
+      const message = invokeError instanceof Error ? invokeError.message : String(invokeError)
+      setError(message)
+      options.onError?.(message)
     }
   }
 
-  const stop = () => {
-    const audio = audioRef.current
-    if (!audio) return
-    audio.pause()
-    audio.currentTime = 0
-    setIsPlaying(false)
-    setCurrentTime(0)
+  const stop = async () => {
+    if (!playerId) return
+    try {
+      const state = await invoke<PlayerState>('audio_stop', { playerId })
+      applyState(state)
+      setError('')
+    } catch (invokeError) {
+      console.error('停止エラー:', invokeError)
+      const message = invokeError instanceof Error ? invokeError.message : String(invokeError)
+      setError(message)
+      options.onError?.(message)
+    }
   }
 
-  const seek = (nextTime: number) => {
-    const audio = audioRef.current
-    if (!audio) return
-    audio.currentTime = nextTime
-    setCurrentTime(nextTime)
+  const selectOutput = async (deviceId: string) => {
+    setSelectedOutputId(deviceId)
+    if (!playerId) return
+    try {
+      const state = await invoke<PlayerState>('audio_set_player_device', { playerId, deviceId })
+      applyState(state)
+      setError('')
+    } catch (invokeError) {
+      console.error('出力デバイス切替エラー:', invokeError)
+      const message = invokeError instanceof Error ? invokeError.message : String(invokeError)
+      setError(message)
+      options.onError?.(message)
+    }
   }
 
-  const formatTime = (seconds: number) => {
-    if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
-    const total = Math.floor(seconds)
-    const minutes = Math.floor(total / 60)
-    const remain = total % 60
-    return `${minutes}:${String(remain).padStart(2, '0')}`
+  const playPcmF32 = async (samples: number[], sampleRate: number, channels: number) => {
+    if (!playerId) return
+    try {
+      const state = await invoke<PlayerState>('audio_play_pcm_f32', {
+        playerId,
+        samples,
+        sampleRate,
+        channels,
+      })
+      applyState(state)
+      setError('')
+    } catch (invokeError) {
+      console.error('PCM再生エラー:', invokeError)
+      const message = invokeError instanceof Error ? invokeError.message : String(invokeError)
+      setError(message)
+      options.onError?.(message)
+    }
   }
 
-  const handleLoadedMetadata = (dur: number) => {
-    setDuration(Number.isFinite(dur) ? dur : 0)
-  }
-
-  const handleTimeUpdate = (time: number) => {
-    setCurrentTime(time || 0)
-  }
-
-  const handlePlayStateChange = (playing: boolean) => {
-    setIsPlaying(playing)
-  }
-
-  // URL cleanup
   useEffect(() => {
-    return () => {
-      if (url) URL.revokeObjectURL(url)
+    let disposed = false
+
+    const init = async () => {
+      try {
+        const createdId = await invoke<number>('audio_create_player')
+        if (disposed) {
+          void invoke('audio_destroy_player', { playerId: createdId })
+          return
+        }
+        playerIdRef.current = createdId
+        setPlayerId(createdId)
+      } catch (invokeError) {
+        console.error('プレイヤー作成エラー:', invokeError)
+        const message = invokeError instanceof Error ? invokeError.message : String(invokeError)
+        setError(message)
+        options.onError?.(message)
+      }
     }
-  }, [url])
+
+    init()
+
+    return () => {
+      disposed = true
+      const id = playerIdRef.current
+      if (!id) return
+      void invoke('audio_destroy_player', { playerId: id })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (!playerId) return
+    void selectOutput(selectedOutputId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerId])
+
+  useEffect(() => {
+    if (!playerId) return
+
+    const intervalMs = Number.isFinite(options.pollIntervalMs) ? (options.pollIntervalMs as number) : 250
+    if (intervalMs <= 0) return
+
+    const handle = window.setInterval(async () => {
+      try {
+        const state = await invoke<PlayerState>('audio_get_state', { playerId })
+        applyState(state)
+      } catch {
+        // ignore polling errors
+      }
+    }, intervalMs)
+
+    return () => {
+      window.clearInterval(handle)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerId])
 
   return {
-    audioRef,
     fileInputRef,
-    url,
     fileName,
+    playerId,
+    selectedOutputId,
     isPlaying,
-    currentTime,
-    duration,
+    hasAudio,
+    error,
     handleUpload,
     triggerUpload,
     togglePlayback,
     stop,
-    seek,
-    formatTime,
-    handleLoadedMetadata,
-    handleTimeUpdate,
-    handlePlayStateChange,
+    selectOutput,
+    playPcmF32,
   }
 }
