@@ -2,7 +2,7 @@ import socket
 import time
 import random
 
-SERVER_IP = "192.0.0.2"  # ←受信側MacのIPに変え
+SERVER_IP = "240a:61:6c2c:75e7:1c15:d243:5cd2:149f"  # ←受信側MacのIPに変え
 PORT = 5001
 HZ = 30.0
 
