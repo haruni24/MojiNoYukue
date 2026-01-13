@@ -51,6 +51,55 @@
   color: rgba(255, 255, 255, 0.7);
 }
 
+.trackedTextOverlay__marker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--size, 18px);
+  height: var(--size, 18px);
+  transform: translate3d(var(--x, 0px), var(--y, 0px), 0) translate(-50%, -50%);
+  border-radius: 999px;
+  border: 2px solid hsla(var(--hue, 210), 92%, 70%, 0.95);
+  background: hsla(var(--hue, 210), 92%, 60%, 0.16);
+  box-shadow:
+    0 0 0 6px hsla(var(--hue, 210), 92%, 70%, 0.09),
+    0 12px 34px rgba(0, 0, 0, 0.35);
+  opacity: var(--opacity, 1);
+  will-change: transform, opacity;
+  z-index: 15;
+}
+
+.trackedTextOverlay__marker::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(3px, calc(var(--size, 18px) * 0.18));
+  height: max(3px, calc(var(--size, 18px) * 0.18));
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 14px hsla(var(--hue, 210), 92%, 70%, 0.28);
+}
+
+.trackedTextOverlay__markerId {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, -120%);
+  padding: 0.12rem 0.35rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
 .trackedTextOverlay__hud {
   position: absolute;
   left: 1rem;
@@ -235,4 +284,3 @@
 .trackedTextOverlay__slotClear:hover {
   background: rgba(239, 68, 68, 0.35);
 }
-
