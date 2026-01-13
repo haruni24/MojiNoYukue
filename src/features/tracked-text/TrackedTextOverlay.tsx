@@ -25,6 +25,18 @@ type SpringState = {
   pulseStartMs: number
 }
 
+type MarkerSpringState = {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  size: number
+  vSize: number
+  opacity: number
+  vOpacity: number
+  hue: number
+}
+
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 
 const loadLocalStorageString = (key: string, fallback: string) => {
@@ -75,7 +87,9 @@ export function TrackedTextOverlay() {
 
   const stageRef = useRef<HTMLDivElement>(null)
   const labelElsRef = useRef<Record<number, HTMLDivElement | null>>({ 0: null, 1: null })
+  const markerElsRef = useRef<Map<number, HTMLDivElement>>(new Map())
   const springsRef = useRef<Record<number, SpringState>>({})
+  const markerSpringsRef = useRef<Map<number, MarkerSpringState>>(new Map())
   const labelsRef = useRef<LabelSlot[]>(labels)
   const tracksRef = useRef<Map<number, TrackingTrack>>(new Map())
   const sourceSizeRef = useRef<{ w: number; h: number } | null>(null)
@@ -185,12 +199,84 @@ export function TrackedTextOverlay() {
         const tracks = tracksRef.current
         const slots = labelsRef.current
 
+        const source = sourceSizeRef.current
+        const sourceW = source?.w ?? w
+        const sourceH = source?.h ?? h
+        const coverScale = Math.max(w / Math.max(1, sourceW), h / Math.max(1, sourceH))
+        const displayW = sourceW * coverScale
+        const displayH = sourceH * coverScale
+        const offsetX = (w - displayW) / 2
+        const offsetY = (h - displayH) / 2
+        const toStageX = (xN: number) => offsetX + xN * sourceW * coverScale
+        const toStageY = (yN: number) => offsetY + yN * sourceH * coverScale
+
+        const activeTrackIds = new Set<number>()
+        for (const [id, track] of tracks) {
+          activeTrackIds.add(id)
+          const el = markerElsRef.current.get(id)
+          if (!el) continue
+
+          const xN = clamp(mirrorXRef.current ? 1 - track.centerN[0] : track.centerN[0], 0, 1)
+          const yN = clamp(track.centerN[1], 0, 1)
+          const targetX = toStageX(xN)
+          const targetY = toStageY(yN)
+          const depth = clamp(Math.sqrt(clamp(track.areaN ?? 0, 0, 1)), 0, 1)
+          const targetSize = clamp(16 + depth * 26, 14, 44)
+          const targetOpacity = clamp(0.35 + (track.conf ?? 0) * 0.75, 0.25, 1)
+
+          let spring = markerSpringsRef.current.get(id)
+          if (!spring) {
+            spring = {
+              x: targetX,
+              y: targetY,
+              vx: 0,
+              vy: 0,
+              size: targetSize,
+              vSize: 0,
+              opacity: targetOpacity,
+              vOpacity: 0,
+              hue: (id * 67) % 360,
+            }
+            markerSpringsRef.current.set(id, spring)
+          }
+
+          const stiffness = 220
+          const damping = 30
+          const ax = (targetX - spring.x) * stiffness - spring.vx * damping
+          const ay = (targetY - spring.y) * stiffness - spring.vy * damping
+          spring.vx += ax * dt
+          spring.vy += ay * dt
+          spring.x += spring.vx * dt
+          spring.y += spring.vy * dt
+
+          const asize = (targetSize - spring.size) * (stiffness * 0.85) - spring.vSize * (damping * 0.9)
+          spring.vSize += asize * dt
+          spring.size += spring.vSize * dt
+
+          const aopacity = (targetOpacity - spring.opacity) * (stiffness * 0.85) - spring.vOpacity * (damping * 0.8)
+          spring.vOpacity += aopacity * dt
+          spring.opacity += spring.vOpacity * dt
+          spring.opacity = clamp(spring.opacity, 0, 1)
+
+          el.style.setProperty('--x', `${spring.x.toFixed(2)}px`)
+          el.style.setProperty('--y', `${spring.y.toFixed(2)}px`)
+          el.style.setProperty('--size', `${spring.size.toFixed(2)}px`)
+          el.style.setProperty('--opacity', `${spring.opacity.toFixed(4)}`)
+          el.style.setProperty('--hue', `${spring.hue}`)
+          el.style.zIndex = String(Math.round(1200 + depth * 20))
+        }
+
+        for (const id of markerSpringsRef.current.keys()) {
+          if (!activeTrackIds.has(id)) markerSpringsRef.current.delete(id)
+        }
+
         for (const slot of slots) {
           const el = labelElsRef.current[slot.slot]
           if (!el) continue
           const visible = Boolean(slot.text.trim())
           if (!visible) {
-            el.style.opacity = '0'
+            el.style.opacity = ''
+            el.style.setProperty('--opacity', '0')
             continue
           }
 
@@ -214,22 +300,13 @@ export function TrackedTextOverlay() {
           let targetX = w * (slot.slot === 0 ? 0.35 : 0.65)
           let targetY = h * 0.75
           let targetScale = 0.98
-          let targetOpacity = 0.22
+          let targetOpacity = 0
 
           if (track) {
-            const bboxH = clamp(track.bboxN[3] - track.bboxN[1], 0, 1)
-            const yN = clamp(track.centerN[1] - bboxH * 0.42, 0.02, 0.98)
+            const yN = clamp(track.centerN[1], 0.02, 0.98)
             const xN = clamp(mirrorXRef.current ? 1 - track.centerN[0] : track.centerN[0], 0.02, 0.98)
-            const source = sourceSizeRef.current
-            const sourceW = source?.w ?? w
-            const sourceH = source?.h ?? h
-            const scale = Math.max(w / Math.max(1, sourceW), h / Math.max(1, sourceH))
-            const displayW = sourceW * scale
-            const displayH = sourceH * scale
-            const offsetX = (w - displayW) / 2
-            const offsetY = (h - displayH) / 2
-            targetX = offsetX + xN * sourceW * scale
-            targetY = offsetY + yN * sourceH * scale
+            targetX = toStageX(xN)
+            targetY = toStageY(yN)
 
             const depth = clamp(Math.sqrt(clamp(track.areaN ?? 0, 0, 1)), 0, 1)
             targetScale = clamp(0.92 + depth * 1.15, 0.85, 1.9)
@@ -271,7 +348,7 @@ export function TrackedTextOverlay() {
           el.style.setProperty('--rotation', `${rotation.toFixed(3)}deg`)
           el.style.setProperty('--blur', `${blur.toFixed(2)}px`)
           el.style.setProperty('--opacity', `${spring.opacity.toFixed(4)}`)
-          el.style.zIndex = String(Math.round(10 + spring.scale * 100))
+          el.style.zIndex = String(Math.round(1100 + spring.scale * 100))
         }
       }
 
@@ -317,6 +394,19 @@ export function TrackedTextOverlay() {
   return (
     <div className="trackedTextOverlay">
       <div ref={stageRef} className="trackedTextOverlay__stage" aria-hidden="true">
+        {currentTracks.map((track) => (
+          <div
+            key={`marker-${track.id}`}
+            ref={(el) => {
+              if (el) markerElsRef.current.set(track.id, el)
+              else markerElsRef.current.delete(track.id)
+            }}
+            className="trackedTextOverlay__marker"
+          >
+            <span className="trackedTextOverlay__markerId">{track.id}</span>
+          </div>
+        ))}
+
         {labels.map((slot) => (
           <div
             key={slot.slot}
