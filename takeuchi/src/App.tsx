@@ -1,20 +1,19 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import './App.css';
 
-// ■ 1. ゾーン定義に spacing (px単位) を追加
+// --- ゾーン定義（前回と同じ） ---
 interface Zone {
   start: number;
   end: number;
   scale: number;
-  spacing: number; // 追加：このゾーンでの文字間隔（px）
+  spacing: number;
 }
 
 const PROJECTION_ZONES: Zone[] = [
-  // 300px〜600pxの間は、2倍の大きさになり、文字間隔を 30px 広げる
-  // 800px〜1000pxの間は、半分になり、文字間隔を 0px にする（標準）
   { start: 480, end: 800, scale: 0.95, spacing: 0 },
 ];
 
+// --- MovingText コンポーネント（前回と同じ） ---
 interface MovingTextProps {
   id: number;
   text: string;
@@ -30,11 +29,8 @@ const MovingText: React.FC<MovingTextProps> = ({
   const requestRef = useRef<number | null>(null);
   const charRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const xPosRef = useRef(-300);
-
-  // ■ 各文字ごとの「現在のスケール」と「現在の余白」を記憶
   const charScalesRef = useRef<number[]>(new Array(text.length).fill(1));
-  const charSpacingsRef = useRef<number[]>(new Array(text.length).fill(0)); // 追加
-
+  const charSpacingsRef = useRef<number[]>(new Array(text.length).fill(0));
   const charOffsetsRef = useRef<number[]>([]);
 
   useLayoutEffect(() => {
@@ -59,36 +55,27 @@ const MovingText: React.FC<MovingTextProps> = ({
 
       charRefs.current.forEach((span, index) => {
         if (!span) return;
-
-        // ※注意: marginが変わると実際の絶対座標はずれますが、
-        // 簡易的な判定のため「初期状態のオフセット」を基準に判定します
         const charAbsoluteX = currentContainerX + (charOffsetsRef.current[index] || 0);
         
-        // デフォルト値
         let targetScale = 1.0;
-        let targetSpacing = 5; // ■ 通常時の文字間隔 (px)
+        let targetSpacing = 5;
 
         for (const zone of PROJECTION_ZONES) {
           if (charAbsoluteX >= zone.start && charAbsoluteX <= zone.end) {
             targetScale = zone.scale;
-            targetSpacing = zone.spacing; // ゾーン内の間隔を適用
+            targetSpacing = zone.spacing;
             break;
           }
         }
 
-        // 1. スケールの滑らか変化 (Lerp)
         const currentScale = charScalesRef.current[index];
         const newScale = currentScale + (targetScale - currentScale) * 0.1;
         charScalesRef.current[index] = newScale;
 
-        // 2. 余白の滑らか変化 (Lerp)
         const currentSpacing = charSpacingsRef.current[index];
-        // 余白の変化は少し早め（0.2）にするとキビキビ動きます
         const newSpacing = currentSpacing + (targetSpacing - currentSpacing) * 0.2;
         charSpacingsRef.current[index] = newSpacing;
         
-        // ■ DOMに適用
-        // scaleで大きさを、marginRightで横の間隔を操作
         span.style.transform = `scale(${newScale})`;
         span.style.marginRight = `${newSpacing}px`;
       });
@@ -97,7 +84,6 @@ const MovingText: React.FC<MovingTextProps> = ({
     };
 
     requestRef.current = requestAnimationFrame(animate);
-
     return () => {
       if (requestRef.current !== null) cancelAnimationFrame(requestRef.current);
     };
@@ -107,22 +93,13 @@ const MovingText: React.FC<MovingTextProps> = ({
     <div
       ref={containerRef}
       className="moving-text-container"
-      style={{
-        top: `${top}%`,
-        left: 0,
-        willChange: 'transform',
-      }}
+      style={{ top: `${top}%`, left: 0, willChange: 'transform' }}
     >
       {text.split('').map((char, index) => (
         <span
           key={index}
           ref={(el) => { charRefs.current[index] = el; }}
-          style={{ 
-            display: 'inline-block',
-            willChange: 'transform, margin', // ブラウザにmarginも変わるよと伝える
-            marginRight: '5px', // 初期値
-            // transformOrigin: 'bottom left' // 左下基準で大きくしたい場合はコメントアウトを外す
-          }}
+          style={{ display: 'inline-block', willChange: 'transform, margin', marginRight: '5px' }}
         >
           {char === ' ' ? '\u00A0' : char}
         </span>
@@ -131,8 +108,7 @@ const MovingText: React.FC<MovingTextProps> = ({
   );
 };
 
-// --- 以下、Appコンポーネントは変更なし（前回と同じ） ---
-// ただし、PROJECTION_ZONESの定義が変わっているので注意してください
+// --- App コンポーネント ---
 interface MessageData {
   id: number;
   text: string;
@@ -142,29 +118,70 @@ interface MessageData {
 
 function App() {
   const [messages, setMessages] = useState<MessageData[]>([]);
+  const [csvData, setCsvData] = useState<string[]>([]);
+  const nextId = useRef(0); // ユニークなIDを生成するためのカウンター
+  const csvIndex = useRef(0); // 次に表示するCSVデータの行番号
 
   const handleRemove = (idToRemove: number) => {
     setMessages((prev) => prev.filter((msg) => msg.id !== idToRemove));
   };
 
+  // 起動時に一度だけCSVを読み込み、メッセージ生成のループを開始する
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Enter') {
-        const newMessage: MessageData = {
-          id: Date.now(),
-          text: "あいうえおかきくけこ",
-          top: Math.random() * 80 + 10,
-          speed: Math.random() * 4 + 2,
-        };
-        setMessages((prev) => [...prev, newMessage]);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+    fetch('/選択１.csv')
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('CSVファイルが見つかりません');
+        }
+        return response.text();
+      })
+      .then((text) => {
+        // ヘッダー行を除き、B列のデータを抽出
+        const rows = text.split(/\r\n|\n/).slice(1); // .slice(1)でヘッダーを除外
+        const columnBData = rows
+          .map((row) => {
+            const columns = row.split(',');
+            return columns[1] ? columns[1].trim() : '';
+          })
+          .filter((text) => text !== '');
+
+        setCsvData(columnBData);
+        console.log("B列のデータ:", columnBData);
+      })
+      .catch((error) => console.error("CSV読み込みエラー:", error));
+  }, []); // 最初の一回だけ実行
+
+  // csvDataが更新されたら、メッセージ生成のインターバルを開始
+  useEffect(() => {
+    if (csvData.length === 0) return;
+
+    const intervalId = setInterval(() => {
+      // csvDataから次のメッセージを取得
+      const text = csvData[csvIndex.current];
+      
+      // 次の行へ。最後まで行ったら最初に戻る
+      csvIndex.current = (csvIndex.current + 1) % csvData.length;
+
+      const newMessage: MessageData = {
+        id: nextId.current++,
+        text: text,
+        top: Math.random() * 90, // 画面の上から90%の範囲でランダム
+        speed: Math.random() * 2 + 1, // 1〜3のランダムな速度
+      };
+
+      // 画面上のメッセージが15個を超えないようにする
+      setMessages((prev) => [...prev, newMessage].slice(-15));
+
+    }, 2000); // 2秒ごとに新しいメッセージを生成
+
+    // コンポーネントがアンマウントされた時にインターバルをクリア
+    return () => clearInterval(intervalId);
+
+  }, [csvData]); // csvDataがセットされたらこのeffectを実行
 
   return (
     <div className="App">
+      {/* ゾーン表示（本番では消す） */}
       {PROJECTION_ZONES.map((zone, i) => (
         <div key={i} style={{
           position: 'absolute',
@@ -175,12 +192,8 @@ function App() {
           borderLeft: '1px solid red',
           borderRight: '1px solid red',
           zIndex: 0,
-          pointerEvents: 'none',
-          color: 'red',
-          padding: '5px'
-        }}>
-          Gap: {zone.spacing}px
-        </div>
+          pointerEvents: 'none'
+        }} />
       ))}
 
       {messages.map((msg) => (
