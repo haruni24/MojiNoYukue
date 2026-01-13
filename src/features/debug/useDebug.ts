@@ -1,9 +1,39 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { RenderMode, DebugSnapshot } from './types'
+
+const DEBUG_ENABLED_KEY = 'debug.enabled'
+const DEBUG_RENDER_MODE_KEY = 'debug.renderMode'
+const DEBUG_MASK_INDEX_KEY = 'debug.selectedMaskIndex'
 
 const getInitialDebugEnabled = () => {
   if (typeof window === 'undefined') return false
   return new URLSearchParams(window.location.search).has('debug')
+}
+
+const readStoredBoolean = (key: string) => {
+  try {
+    const value = window.localStorage.getItem(key)
+    if (value === null) return null
+    return value === 'true'
+  } catch {
+    return null
+  }
+}
+
+const readStoredString = (key: string) => {
+  try {
+    return window.localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+const storeString = (key: string, value: string) => {
+  try {
+    window.localStorage.setItem(key, value)
+  } catch {
+    // ignore
+  }
 }
 
 export type UseDebugOptions = {
@@ -25,9 +55,22 @@ export type SegmenterLike = {
 }
 
 export function useDebug(options: UseDebugOptions = {}) {
-  const [debugEnabled, setDebugEnabled] = useState(options.initialEnabled ?? getInitialDebugEnabled())
-  const [renderMode, setRenderMode] = useState<RenderMode>('composite')
-  const [selectedMaskIndex, setSelectedMaskIndex] = useState<number | 'auto'>('auto')
+  const [debugEnabled, setDebugEnabled] = useState(() => {
+    const stored = readStoredBoolean(DEBUG_ENABLED_KEY)
+    if (stored !== null) return stored
+    return options.initialEnabled ?? getInitialDebugEnabled()
+  })
+  const [renderMode, setRenderMode] = useState<RenderMode>(() => {
+    const stored = readStoredString(DEBUG_RENDER_MODE_KEY)
+    return (stored as RenderMode) ?? 'composite'
+  })
+  const [selectedMaskIndex, setSelectedMaskIndex] = useState<number | 'auto'>(() => {
+    const stored = readStoredString(DEBUG_MASK_INDEX_KEY)
+    if (!stored) return 'auto'
+    if (stored === 'auto') return 'auto'
+    const n = Number(stored)
+    return Number.isFinite(n) ? n : 'auto'
+  })
   const [debugText, setDebugText] = useState<string>('')
   const [debugSnapshot, setDebugSnapshot] = useState<DebugSnapshot | null>(null)
 
@@ -205,6 +248,40 @@ export function useDebug(options: UseDebugOptions = {}) {
       index,
       label: ''
     }))
+  }, [])
+
+  useEffect(() => {
+    storeString(DEBUG_ENABLED_KEY, String(debugEnabled))
+  }, [debugEnabled])
+
+  useEffect(() => {
+    storeString(DEBUG_RENDER_MODE_KEY, renderMode)
+  }, [renderMode])
+
+  useEffect(() => {
+    storeString(DEBUG_MASK_INDEX_KEY, selectedMaskIndex === 'auto' ? 'auto' : String(selectedMaskIndex))
+  }, [selectedMaskIndex])
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key) return
+      if (event.key === DEBUG_ENABLED_KEY && event.newValue !== null) {
+        setDebugEnabled(event.newValue === 'true')
+      }
+      if (event.key === DEBUG_RENDER_MODE_KEY && event.newValue !== null) {
+        setRenderMode(event.newValue as RenderMode)
+      }
+      if (event.key === DEBUG_MASK_INDEX_KEY && event.newValue !== null) {
+        if (event.newValue === 'auto') setSelectedMaskIndex('auto')
+        else {
+          const n = Number(event.newValue)
+          setSelectedMaskIndex(Number.isFinite(n) ? n : 'auto')
+        }
+      }
+    }
+
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
   }, [])
 
   return {

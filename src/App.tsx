@@ -1,15 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import './App.css'
 
 // Features
-import { useCamera, CameraSelector } from './features/camera'
-import { useAudioOutputDevices, AudioPlayerPanel } from './features/audio-player'
-import { useDebug, DebugPanel, type RenderMode } from './features/debug'
+import { useCamera } from './features/camera'
+import { useDebug } from './features/debug'
 import { useBackgroundImage } from './features/background'
 import { TrackedTextOverlay } from './features/tracked-text/TrackedTextOverlay'
 
 // Lib
 import { ensureCanvasSize, drawTestPattern, drawStatusPlaceholder } from './lib/canvas'
+import { ensureSettingsWindow } from './lib/ensureSettingsWindow'
 
 // Segmentation
 import { useImageSegmentation, applyBackgroundReplacement } from './useImageSegmentation'
@@ -19,26 +19,30 @@ function App() {
   const animationFrameRef = useRef<number | undefined>(undefined)
 
   // Feature hooks
-  const camera = useCamera()
-  const audioOutput = useAudioOutputDevices()
+  const { videoRef, streamRef, videoReady, error: cameraError } = useCamera()
   const debug = useDebug()
   const background = useBackgroundImage()
   const { segmenter, isLoading, error: segmenterError } = useImageSegmentation()
-  const [audioPanels, setAudioPanels] = useState<number[]>(() => [1])
-  const [nextAudioPanelId, setNextAudioPanelId] = useState(2)
 
-  const addAudioPanel = () => {
-    setAudioPanels((prev) => [...prev, nextAudioPanelId])
-    setNextAudioPanelId((prev) => prev + 1)
-  }
+  useEffect(() => {
+    void ensureSettingsWindow({ focus: false })
 
-  const removeAudioPanel = (panelId: number) => {
-    setAudioPanels((prev) => prev.filter((id) => id !== panelId))
-  }
+    const onKeyDown = (event: KeyboardEvent) => {
+      const isMac = navigator.platform.toLowerCase().includes('mac')
+      const mod = isMac ? event.metaKey : event.ctrlKey
+      if (!mod) return
+      if (event.key !== ',') return
+      event.preventDefault()
+      void ensureSettingsWindow({ focus: true })
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   // セグメンテーション処理
   useEffect(() => {
-    const videoElement = camera.videoRef.current
+    const videoElement = videoRef.current
     const canvasElement = canvasRef.current
     if (!videoElement || !canvasElement) return
 
@@ -121,7 +125,7 @@ function App() {
           'VIDEO NOT READY',
           `readyState=${videoElement.readyState} paused=${videoElement.paused} ended=${videoElement.ended}`,
           `videoWidth=${videoElement.videoWidth} videoHeight=${videoElement.videoHeight}`,
-          `segmenter=${segmenter ? 'ready' : isLoading ? 'loading' : 'none'} videoReady(state)=${camera.videoReady}`,
+          `segmenter=${segmenter ? 'ready' : isLoading ? 'loading' : 'none'} videoReady(state)=${videoReady}`,
           `mode=${debug.renderMode}${debug.debugEnabled ? ' (debug)' : ''}`
         ])
       } else if (debug.renderMode === 'test') {
@@ -160,11 +164,11 @@ function App() {
       if (debug.debugEnabled) {
         const canvasRect = canvasElement.getBoundingClientRect()
         const labels = segmenter?.getLabels?.() ?? []
-        const track = camera.streamRef.current?.getVideoTracks?.()?.[0]
+        const track = streamRef.current?.getVideoTracks?.()?.[0]
         debug.updateDebugText(timestamp, [
           `mode=${debug.renderMode} fps=${debug.fpsRef.current.toFixed(1)} frameMs=${debug.lastFrameMsRef.current.toFixed(1)}`,
           `video: readyState=${videoElement.readyState} paused=${videoElement.paused} time=${videoElement.currentTime.toFixed(3)}`,
-          `video: ${videoElement.videoWidth}x${videoElement.videoHeight} (ready=${videoIsReady} state(videoReady)=${camera.videoReady})`,
+          `video: ${videoElement.videoWidth}x${videoElement.videoHeight} (ready=${videoIsReady} state(videoReady)=${videoReady})`,
           `canvas: ${canvasElement.width}x${canvasElement.height} css=${Math.round(canvasRect.width)}x${Math.round(canvasRect.height)}`,
           `segmenter: ${segmenter ? 'ready' : isLoading ? 'loading' : 'none'} labels=${labels.length}`,
           track
@@ -183,22 +187,13 @@ function App() {
         cancelAnimationFrame(animationFrameRef.current)
       }
     }
-  }, [background.image, debug, isLoading, segmenter, camera.videoReady, camera.videoRef, camera.streamRef])
-
-  const handleCaptureSnapshot = () => {
-    debug.captureSnapshot(
-      camera.videoRef.current,
-      canvasRef.current,
-      camera.streamRef,
-      segmenter
-    )
-  }
+  }, [background.image, debug, isLoading, segmenter, videoReady, videoRef, streamRef])
 
   return (
     <div className="app">
       <div className="video-container">
         <video
-          ref={camera.videoRef}
+          ref={videoRef}
           autoPlay
           playsInline
           muted
@@ -212,83 +207,15 @@ function App() {
           }}
         />
         <canvas ref={canvasRef} className="canvas" />
-        <TrackedTextOverlay />
-
-        {/* 上部UI */}
-        <div className="overlay-ui overlay-ui--top">
-          {/* カメラ選択バー */}
-          {camera.devices.length > 1 && (
-            <CameraSelector
-              devices={camera.devices}
-              selectedDeviceId={camera.selectedDeviceId}
-              onSelect={camera.setSelectedDeviceId}
-            />
-          )}
-
-          <div className="controls">
-            <button onClick={background.triggerUpload} className="glass-button">
-              背景画像をアップロード
-            </button>
-            <button type="button" onClick={addAudioPanel} className="glass-button">
-              音声プレイヤー追加
-            </button>
-            {background.image && (
-              <button onClick={background.remove} className="glass-button glass-button--danger">
-                背景を削除
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => debug.setDebugEnabled((prev) => !prev)}
-              className="glass-button glass-button--secondary"
-            >
-              {debug.debugEnabled ? 'デバッグON' : 'デバッグOFF'}
-            </button>
-          </div>
-
-          <div className="audio-player-stack">
-            {audioPanels.map((panelId) => (
-              <AudioPlayerPanel
-                key={panelId}
-                outputDevices={audioOutput.devices}
-                outputError={audioOutput.error}
-                isOutputLoading={audioOutput.isLoading}
-                onRefreshOutputs={audioOutput.refreshDevices}
-                onRemove={audioPanels.length > 1 ? () => removeAudioPanel(panelId) : undefined}
-              />
-            ))}
-          </div>
-        </div>
-
-        <input
-          ref={background.fileInputRef}
-          type="file"
-          accept="image/*"
-          onChange={background.handleUpload}
-          style={{ display: 'none' }}
-        />
+        <TrackedTextOverlay showStatusControls={false} />
 
         {/* 下部UI（ステータス・デバッグ用） */}
         <div className="overlay-ui overlay-ui--bottom">
-          {(camera.error || segmenterError) && (
-            <div className="error">{camera.error || segmenterError}</div>
+          {(cameraError || segmenterError) && (
+            <div className="error">{cameraError || segmenterError}</div>
           )}
           {isLoading && (
             <div className="loading">MediaPipeを読み込んでいます...</div>
-          )}
-
-          {debug.debugEnabled && (
-            <DebugPanel
-              renderMode={debug.renderMode}
-              onRenderModeChange={debug.setRenderMode as (mode: RenderMode) => void}
-              selectedMaskIndex={debug.selectedMaskIndex}
-              onMaskIndexChange={debug.setSelectedMaskIndex}
-              maskIndexOptions={debug.maskIndexOptions}
-              debugText={debug.debugText}
-              debugSnapshot={debug.debugSnapshot}
-              segmenterDisabled={!segmenter}
-              onCaptureSnapshot={handleCaptureSnapshot}
-            />
           )}
         </div>
       </div>

@@ -1,0 +1,89 @@
+.settingsApp {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: auto;
+  background: radial-gradient(1200px 900px at 20% 10%, rgba(255, 255, 255, 0.12), transparent 60%),
+    radial-gradient(1000px 800px at 80% 20%, rgba(255, 255, 255, 0.08), transparent 55%),
+    #0b0d12;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.settingsApp__inner {
+  padding: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.settingsApp__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.settingsApp__title {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.settingsApp__section {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.settingsApp__sectionTitle {
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.92;
+  margin: 0 0 10px;
+}
+
+.settingsApp__row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.settingsApp__field {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.95;
+}
+
+.settingsApp__input {
+  width: min(520px, 100%);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.25);
+  color: rgba(255, 255, 255, 0.92);
+  padding: 10px 12px;
+  outline: none;
+}
+
+.settingsApp__select {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.25);
+  color: rgba(255, 255, 255, 0.92);
+  padding: 10px 12px;
+  outline: none;
+}
+
+.settingsApp__note {
+  font-size: 12px;
+  opacity: 0.72;
+  margin-top: 10px;
+}
+

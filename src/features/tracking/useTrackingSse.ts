@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 export type TrackingCameraInfo = {
   index: number
@@ -66,9 +66,6 @@ export function useTrackingSse(url: string, options: UseTrackingSseOptions = {})
   const [cameras, setCameras] = useState<TrackingCameraInfo[]>([])
   const [tracksByCameraIndex, setTracksByCameraIndex] = useState<Record<number, TrackingTracksMessage>>({})
   const [lastEventAt, setLastEventAt] = useState<number | null>(null)
-
-  const urlRef = useRef(url)
-  urlRef.current = url
 
   const enabledKey = useMemo(() => (enabled && url ? `${url}` : ''), [enabled, url])
 
@@ -141,4 +138,3 @@ export function useTrackingSse(url: string, options: UseTrackingSseOptions = {})
     lastEventAt,
   }
 }
-

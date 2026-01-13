@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEven
 import './TrackedTextOverlay.css'
 import { useTrackingSse, type TrackingTrack } from '../tracking/useTrackingSse'
 
+export type TrackedTextOverlayProps = {
+  showStatusControls?: boolean
+}
+
 type LabelSlotIndex = 0 | 1
 
 type LabelSlot = {
@@ -76,7 +80,7 @@ const getLargestTracks = (tracks: TrackingTrack[], count: number) => {
   return [...tracks].sort((a, b) => (b.areaN ?? 0) - (a.areaN ?? 0)).slice(0, count)
 }
 
-export function TrackedTextOverlay() {
+export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOverlayProps) {
   const [sseUrl, setSseUrl] = useState(() => loadLocalStorageString('tracking.sseUrl', 'http://127.0.0.1:8765/stream'))
   const [cameraIndex, setCameraIndex] = useState(() => loadLocalStorageNumber('tracking.cameraIndex', 0))
   const [mirrorX, setMirrorX] = useState(() => loadLocalStorageBoolean('tracking.mirrorX', true))
@@ -94,9 +98,13 @@ export function TrackedTextOverlay() {
   const tracksRef = useRef<Map<number, TrackingTrack>>(new Map())
   const sourceSizeRef = useRef<{ w: number; h: number } | null>(null)
   const mirrorXRef = useRef<boolean>(mirrorX)
+  useEffect(() => {
+    labelsRef.current = labels
+  }, [labels])
 
-  labelsRef.current = labels
-  mirrorXRef.current = mirrorX
+  useEffect(() => {
+    mirrorXRef.current = mirrorX
+  }, [mirrorX])
 
   const currentMessage = tracking.tracksByCameraIndex[cameraIndex]
   const currentTracks = currentMessage?.tracks ?? []
@@ -132,6 +140,25 @@ export function TrackedTextOverlay() {
   useEffect(() => {
     saveLocalStorage('tracking.mirrorX', String(mirrorX))
   }, [mirrorX])
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key) return
+      if (event.key === 'tracking.sseUrl' && typeof event.newValue === 'string') {
+        setSseUrl(event.newValue)
+      }
+      if (event.key === 'tracking.cameraIndex' && typeof event.newValue === 'string') {
+        const value = Number(event.newValue)
+        if (Number.isFinite(value)) setCameraIndex(value)
+      }
+      if (event.key === 'tracking.mirrorX' && typeof event.newValue === 'string') {
+        setMirrorX(event.newValue === 'true')
+      }
+    }
+
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   // 追跡IDの割り当て（既存割り当てを優先しつつ、空きがあれば大きいbboxから埋める）
   useEffect(() => {
@@ -425,57 +452,61 @@ export function TrackedTextOverlay() {
       </div>
 
       <div className="trackedTextOverlay__hud">
-        <div className="trackedTextOverlay__statusRow">
-          <span className="trackedTextOverlay__badge">
-            <span
-              className={[
-                'trackedTextOverlay__badgeDot',
-                tracking.status === 'open'
-                  ? 'trackedTextOverlay__badgeDot--open'
-                  : tracking.status === 'connecting'
-                    ? 'trackedTextOverlay__badgeDot--connecting'
-                    : tracking.status === 'error'
-                      ? 'trackedTextOverlay__badgeDot--error'
-                      : '',
-              ].join(' ')}
-            />
-            TRACKING
-          </span>
+        {showStatusControls && (
+          <>
+            <div className="trackedTextOverlay__statusRow">
+              <span className="trackedTextOverlay__badge">
+                <span
+                  className={[
+                    'trackedTextOverlay__badgeDot',
+                    tracking.status === 'open'
+                      ? 'trackedTextOverlay__badgeDot--open'
+                      : tracking.status === 'connecting'
+                        ? 'trackedTextOverlay__badgeDot--connecting'
+                        : tracking.status === 'error'
+                          ? 'trackedTextOverlay__badgeDot--error'
+                          : '',
+                  ].join(' ')}
+                />
+                TRACKING
+              </span>
 
-          <label className="trackedTextOverlay__control">
-            cam
-            <select
-              className="trackedTextOverlay__select"
-              value={cameraIndex}
-              onChange={(e) => setCameraIndex(Number(e.target.value))}
-            >
-              {cameraOptions.map((option) => (
-                <option key={option.index} value={option.index}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              <label className="trackedTextOverlay__control">
+                cam
+                <select
+                  className="trackedTextOverlay__select"
+                  value={cameraIndex}
+                  onChange={(e) => setCameraIndex(Number(e.target.value))}
+                >
+                  {cameraOptions.map((option) => (
+                    <option key={option.index} value={option.index}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-          <label className="trackedTextOverlay__control">
-            mirrorX
-            <input
-              type="checkbox"
-              checked={mirrorX}
-              onChange={(e) => setMirrorX(e.target.checked)}
-            />
-          </label>
+              <label className="trackedTextOverlay__control">
+                mirrorX
+                <input
+                  type="checkbox"
+                  checked={mirrorX}
+                  onChange={(e) => setMirrorX(e.target.checked)}
+                />
+              </label>
 
-          <input
-            className="trackedTextOverlay__urlInput"
-            value={sseUrl}
-            onChange={(e) => setSseUrl(e.target.value)}
-            placeholder="http://127.0.0.1:8765/stream"
-            spellCheck={false}
-          />
-        </div>
+              <input
+                className="trackedTextOverlay__urlInput"
+                value={sseUrl}
+                onChange={(e) => setSseUrl(e.target.value)}
+                placeholder="http://127.0.0.1:8765/stream"
+                spellCheck={false}
+              />
+            </div>
 
-        {tracking.error && <div className="trackedTextOverlay__error">{tracking.error}</div>}
+            {tracking.error && <div className="trackedTextOverlay__error">{tracking.error}</div>}
+          </>
+        )}
 
         <form className="trackedTextOverlay__composer" onSubmit={handleSubmit}>
           <input
