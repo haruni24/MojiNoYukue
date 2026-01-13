@@ -1,0 +1,19 @@
+/* App.css */
+.moving-text-container {
+  position: absolute;
+  white-space: nowrap;
+  font-size: 3rem;
+  font-weight: bold;
+  color: white;
+  
+  /* アニメーション関連のプロパティは削除 */
+  /* JSで transform を制御するため、初期値は不要 */
+}
+
+.App {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+  background-color: #000; /* マッピングなので黒背景が一般的 */
+}
