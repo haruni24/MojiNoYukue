@@ -263,7 +263,7 @@ export function TrackedTextOverlay() {
           el.style.setProperty('--size', `${spring.size.toFixed(2)}px`)
           el.style.setProperty('--opacity', `${spring.opacity.toFixed(4)}`)
           el.style.setProperty('--hue', `${spring.hue}`)
-          el.style.zIndex = String(Math.round(12 + depth * 20))
+          el.style.zIndex = String(Math.round(1200 + depth * 20))
         }
 
         for (const id of markerSpringsRef.current.keys()) {
@@ -275,7 +275,8 @@ export function TrackedTextOverlay() {
           if (!el) continue
           const visible = Boolean(slot.text.trim())
           if (!visible) {
-            el.style.opacity = '0'
+            el.style.opacity = ''
+            el.style.setProperty('--opacity', '0')
             continue
           }
 
@@ -299,11 +300,10 @@ export function TrackedTextOverlay() {
           let targetX = w * (slot.slot === 0 ? 0.35 : 0.65)
           let targetY = h * 0.75
           let targetScale = 0.98
-          let targetOpacity = 0.22
+          let targetOpacity = 0
 
           if (track) {
-            const bboxH = clamp(track.bboxN[3] - track.bboxN[1], 0, 1)
-            const yN = clamp(track.centerN[1] - bboxH * 0.42, 0.02, 0.98)
+            const yN = clamp(track.centerN[1], 0.02, 0.98)
             const xN = clamp(mirrorXRef.current ? 1 - track.centerN[0] : track.centerN[0], 0.02, 0.98)
             targetX = toStageX(xN)
             targetY = toStageY(yN)
@@ -348,7 +348,7 @@ export function TrackedTextOverlay() {
           el.style.setProperty('--rotation', `${rotation.toFixed(3)}deg`)
           el.style.setProperty('--blur', `${blur.toFixed(2)}px`)
           el.style.setProperty('--opacity', `${spring.opacity.toFixed(4)}`)
-          el.style.zIndex = String(Math.round(10 + spring.scale * 100))
+          el.style.zIndex = String(Math.round(1100 + spring.scale * 100))
         }
       }
 
