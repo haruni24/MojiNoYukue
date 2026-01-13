@@ -1,12 +1,141 @@
 import argparse
 import gc
+import json
+import threading
 import time
 from collections import deque, defaultdict
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from queue import Empty, Full, Queue
+from typing import Any
 
 import cv2
 import numpy as np
 from ultralytics import YOLO
+
+
+def _sse_encode(event_name: str, data_obj: dict[str, Any]) -> bytes:
+    payload = json.dumps(data_obj, ensure_ascii=False, separators=(",", ":"))
+    return f"event: {event_name}\ndata: {payload}\n\n".encode("utf-8")
+
+
+class SseHub:
+    def __init__(self, cameras: list[dict[str, Any]], queue_size: int = 32):
+        self.cameras = cameras
+        self._queue_size = queue_size
+        self._clients: set[Queue[bytes]] = set()
+        self._lock = threading.Lock()
+
+    def add_client(self) -> Queue[bytes]:
+        q: Queue[bytes] = Queue(maxsize=self._queue_size)
+        with self._lock:
+            self._clients.add(q)
+        return q
+
+    def remove_client(self, q: Queue[bytes]) -> None:
+        with self._lock:
+            self._clients.discard(q)
+
+    def publish(self, event_name: str, data_obj: dict[str, Any]) -> None:
+        msg = _sse_encode(event_name, data_obj)
+        with self._lock:
+            clients = list(self._clients)
+        for q in clients:
+            try:
+                q.put_nowait(msg)
+            except Full:
+                try:
+                    q.get_nowait()
+                except Empty:
+                    pass
+                try:
+                    q.put_nowait(msg)
+                except Full:
+                    pass
+
+    def status(self) -> dict[str, Any]:
+        with self._lock:
+            clients = len(self._clients)
+        return {"ok": True, "clients": clients, "cameras": self.cameras}
+
+
+class _TrackingSseHandler(BaseHTTPRequestHandler):
+    hub: SseHub
+
+    def log_message(self, fmt: str, *args: object) -> None:
+        # 標準のアクセスログは静かにする（推論中のSTDOUTを汚さない）
+        return
+
+    def _cors(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self._cors()
+        self.end_headers()
+
+    def do_GET(self) -> None:
+        path = self.path.split("?", 1)[0]
+
+        if path == "/status":
+            body = json.dumps(self.hub.status(), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            self.send_response(200)
+            self._cors()
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path != "/stream":
+            self.send_response(404)
+            self._cors()
+            self.end_headers()
+            return
+
+        self.send_response(200)
+        self._cors()
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+        q = self.hub.add_client()
+        try:
+            self.wfile.write(_sse_encode("hello", {"type": "hello", "version": 1, "cameras": self.hub.cameras, "ts": time.time()}))
+            self.wfile.flush()
+
+            last_ping = time.time()
+            while True:
+                try:
+                    msg = q.get(timeout=1.0)
+                except Empty:
+                    msg = None
+
+                if msg is not None:
+                    self.wfile.write(msg)
+                    self.wfile.flush()
+                    continue
+
+                if time.time() - last_ping >= 5.0:
+                    self.wfile.write(_sse_encode("ping", {"type": "ping", "ts": time.time()}))
+                    self.wfile.flush()
+                    last_ping = time.time()
+        except (BrokenPipeError, ConnectionError, OSError):
+            pass
+        finally:
+            self.hub.remove_client(q)
+
+
+def start_sse_server(host: str, port: int, hub: SseHub) -> ThreadingHTTPServer:
+    _TrackingSseHandler.hub = hub
+    httpd = ThreadingHTTPServer((host, port), _TrackingSseHandler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    print(f"[sse] listening: http://{host}:{port}/stream  (status: http://{host}:{port}/status)")
+    return httpd
 
 
 def pick_target(boxes_xyxy, confs, track_ids, prev_id):
@@ -114,6 +243,8 @@ def annotate_tracking_frame(frame, result, state, args):
     trails = state["trails"]
     last_seen = state["last_seen"]
     target_id = state["target_id"]
+    h, w = frame.shape[:2]
+    tracks_payload: list[dict[str, Any]] = []
 
     # 検出/追跡結果
     if result.boxes is None or result.boxes.id is None:
@@ -134,7 +265,11 @@ def annotate_tracking_frame(frame, result, state, args):
 
         for i in range(len(ids)):
             tid = int(ids[i])
-            x1, y1, x2, y2 = boxes[i].astype(int)
+            x1f, y1f, x2f, y2f = boxes[i].astype(float)
+            x1 = int(np.clip(x1f, 0, w))
+            y1 = int(np.clip(y1f, 0, h))
+            x2 = int(np.clip(x2f, 0, w))
+            y2 = int(np.clip(y2f, 0, h))
             c = float(confs[i])
 
             last_seen[tid] = frame_i
@@ -142,6 +277,19 @@ def annotate_tracking_frame(frame, result, state, args):
             cx = int((x1 + x2) / 2)
             cy = int((y1 + y2) / 2)
             trails[tid].append((cx, cy))
+
+            bw = max(0, x2 - x1)
+            bh = max(0, y2 - y1)
+            area_n = (bw * bh) / float(max(1, w * h))
+            tracks_payload.append({
+                "id": tid,
+                "conf": c,
+                "bbox": [x1, y1, x2, y2],
+                "center": [cx, cy],
+                "bboxN": [x1 / w, y1 / h, x2 / w, y2 / h],
+                "centerN": [cx / w, cy / h],
+                "areaN": area_n,
+            })
 
             is_target = (args.highlight_target and target_id is not None and tid == target_id)
             color = (0, 255, 0) if is_target else (255, 255, 255)
@@ -172,7 +320,7 @@ def annotate_tracking_frame(frame, result, state, args):
                 cv2.line(frame, dq[k - 1], dq[k], color, thick)
 
     state["target_id"] = target_id
-    return frame
+    return frame, tracks_payload
 
 
 def main():
@@ -196,6 +344,9 @@ def main():
     parser.add_argument("--stream_buffer", action="store_true", help="入力ストリームをバッファする（遅延↑ / カクつき↓の場合あり）")
     parser.add_argument("--stutter_ms", type=float, default=200.0, help="このmsを超えたらSTDOUTに警告を出す")
     parser.add_argument("--gc_disable", action="store_true", help="GCを無効化（周期的な停止の切り分け用）")
+    parser.add_argument("--sse", action="store_true", help="追跡結果をSSEで配信する（TS側はEventSourceで受信）")
+    parser.add_argument("--sse_host", type=str, default="127.0.0.1", help="SSEサーバのbind host")
+    parser.add_argument("--sse_port", type=int, default=8765, help="SSEサーバのport")
     args = parser.parse_args()
 
     if args.gc_disable:
@@ -217,6 +368,15 @@ def main():
     streams_path = Path(__file__).with_name("selected_2cams.streams")
     streams_path.write_text(f"{src_a}\n{src_b}\n", encoding="utf-8")
     print(f"Opening sources: A={src_a}, B={src_b} (streams file: {streams_path})")
+
+    camera_index_map = {str(src_a): 0, str(src_b): 1}
+
+    sse_hub = None
+    sse_server = None
+    if args.sse:
+        cameras = [{"index": 0, "source": str(src_a)}, {"index": 1, "source": str(src_b)}]
+        sse_hub = SseHub(cameras=cameras, queue_size=32)
+        sse_server = start_sse_server(args.sse_host, args.sse_port, sse_hub)
 
     model = YOLO(args.model)
 
@@ -246,91 +406,115 @@ def main():
     prev_show_t = time.time()
     batch_frames = {}
     batch_speed = None
+    sse_seq = 0
 
-    for r in results_iter:
-        if r.orig_img is None:
-            break
-
-        key = str(r.path)
-        state = states.get(key)
-        if state is None:
-            state = {
-                "frame_i": 0,
-                "trails": defaultdict(lambda: deque(maxlen=args.trail)),
-                "last_seen": {},
-                "target_id": None,
-            }
-            states[key] = state
-
-        frame = r.orig_img
-        frame = annotate_tracking_frame(frame, r, state, args)
-        cv2.putText(frame, f"CAM: {key}", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 4)
-        cv2.putText(frame, f"CAM: {key}", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-
-        batch_frames[key] = frame
-        batch_speed = getattr(r, "speed", None)
-
-        if len(batch_frames) < 2:
-            continue
-
-        # 表示順に取り出す（取れない場合はキー順）
-        k0, k1 = ordered_keys
-        if k0 not in batch_frames or k1 not in batch_frames:
-            keys = sorted(batch_frames.keys())
-            k0, k1 = keys[0], keys[1]
-
-        f0, f1 = batch_frames[k0], batch_frames[k1]
-        target_h = min(f0.shape[0], f1.shape[0])
-        f0r = _resize_to_height(f0, target_h)
-        f1r = _resize_to_height(f1, target_h)
-        composite = cv2.hconcat([f0r, f1r])
-
-        now = time.time()
-        loop_ms = (now - prev_show_t) * 1000.0
-        prev_show_t = now
-
-        fps = 1000.0 / max(1e-6, loop_ms)
-        sp = batch_speed or {}
-        pre_ms = float(sp.get("preprocess", 0.0))
-        inf_ms = float(sp.get("inference", 0.0))
-        post_ms = float(sp.get("postprocess", 0.0))
-        other_ms = max(0.0, loop_ms - (pre_ms + inf_ms + post_ms))
-
-        cv2.putText(composite, f"FPS: {fps:.1f}  loop={loop_ms:.0f}ms  infer={inf_ms:.0f}ms  other={other_ms:.0f}ms",
-                    (10, composite.shape[0] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-        cv2.putText(composite, f"FPS: {fps:.1f}  loop={loop_ms:.0f}ms  infer={inf_ms:.0f}ms  other={other_ms:.0f}ms",
-                    (10, composite.shape[0] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
-        if loop_ms >= args.stutter_ms:
-            print(f"[stutter] loop={loop_ms:.0f}ms (pre={pre_ms:.0f} inf={inf_ms:.0f} post={post_ms:.0f} other={other_ms:.0f})")
-
-        # writer 初期化（最初の合成フレームでサイズ確定）
-        if args.save and writer is None:
-            h, w = composite.shape[:2]
-            out_size = (w, h)
-            out_fps = max(1.0, min(120.0, fps if fps > 1 else 30.0))
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            writer = cv2.VideoWriter(args.out, fourcc, out_fps, out_size)
-
-        if writer is not None:
-            if out_size is not None and (composite.shape[1], composite.shape[0]) != out_size:
-                composite = cv2.resize(composite, out_size)
-            writer.write(composite)
-
-        if args.show:
-            cv2.imshow("2-camera tracking", composite)
-            key = cv2.waitKey(1) & 0xFF
-            if key == 27:  # ESC
+    try:
+        for r in results_iter:
+            if r.orig_img is None:
                 break
 
-        batch_frames = {}
-        batch_speed = None
+            key = str(r.path)
+            state = states.get(key)
+            if state is None:
+                state = {
+                    "frame_i": 0,
+                    "trails": defaultdict(lambda: deque(maxlen=args.trail)),
+                    "last_seen": {},
+                    "target_id": None,
+                }
+                states[key] = state
 
-    if writer is not None:
-        writer.release()
-    cv2.destroyAllWindows()
+            frame = r.orig_img
+            frame, tracks_payload = annotate_tracking_frame(frame, r, state, args)
+
+            if sse_hub is not None:
+                cam_index = int(camera_index_map.get(key, -1))
+                sse_hub.publish("tracks", {
+                    "type": "tracks",
+                    "ts": time.time(),
+                    "seq": sse_seq,
+                    "cameraIndex": cam_index,
+                    "source": key,
+                    "frame": int(state["frame_i"]),
+                    "size": {"w": int(frame.shape[1]), "h": int(frame.shape[0])},
+                    "tracks": tracks_payload,
+                    "targetId": state.get("target_id"),
+                })
+                sse_seq += 1
+
+            cv2.putText(frame, f"CAM: {key}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 4)
+            cv2.putText(frame, f"CAM: {key}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+
+            batch_frames[key] = frame
+            batch_speed = getattr(r, "speed", None)
+
+            if len(batch_frames) < 2:
+                continue
+
+            # 表示順に取り出す（取れない場合はキー順）
+            k0, k1 = ordered_keys
+            if k0 not in batch_frames or k1 not in batch_frames:
+                keys = sorted(batch_frames.keys())
+                k0, k1 = keys[0], keys[1]
+
+            f0, f1 = batch_frames[k0], batch_frames[k1]
+            target_h = min(f0.shape[0], f1.shape[0])
+            f0r = _resize_to_height(f0, target_h)
+            f1r = _resize_to_height(f1, target_h)
+            composite = cv2.hconcat([f0r, f1r])
+
+            now = time.time()
+            loop_ms = (now - prev_show_t) * 1000.0
+            prev_show_t = now
+
+            fps = 1000.0 / max(1e-6, loop_ms)
+            sp = batch_speed or {}
+            pre_ms = float(sp.get("preprocess", 0.0))
+            inf_ms = float(sp.get("inference", 0.0))
+            post_ms = float(sp.get("postprocess", 0.0))
+            other_ms = max(0.0, loop_ms - (pre_ms + inf_ms + post_ms))
+
+            cv2.putText(composite, f"FPS: {fps:.1f}  loop={loop_ms:.0f}ms  infer={inf_ms:.0f}ms  other={other_ms:.0f}ms",
+                        (10, composite.shape[0] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+            cv2.putText(composite, f"FPS: {fps:.1f}  loop={loop_ms:.0f}ms  infer={inf_ms:.0f}ms  other={other_ms:.0f}ms",
+                        (10, composite.shape[0] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+            if loop_ms >= args.stutter_ms:
+                print(f"[stutter] loop={loop_ms:.0f}ms (pre={pre_ms:.0f} inf={inf_ms:.0f} post={post_ms:.0f} other={other_ms:.0f})")
+
+            # writer 初期化（最初の合成フレームでサイズ確定）
+            if args.save and writer is None:
+                h, w = composite.shape[:2]
+                out_size = (w, h)
+                out_fps = max(1.0, min(120.0, fps if fps > 1 else 30.0))
+                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                writer = cv2.VideoWriter(args.out, fourcc, out_fps, out_size)
+
+            if writer is not None:
+                if out_size is not None and (composite.shape[1], composite.shape[0]) != out_size:
+                    composite = cv2.resize(composite, out_size)
+                writer.write(composite)
+
+            if args.show:
+                cv2.imshow("2-camera tracking", composite)
+                key = cv2.waitKey(1) & 0xFF
+                if key == 27:  # ESC
+                    break
+
+            batch_frames = {}
+            batch_speed = None
+    finally:
+        if writer is not None:
+            writer.release()
+        cv2.destroyAllWindows()
+        if sse_server is not None:
+            try:
+                sse_server.shutdown()
+                sse_server.server_close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

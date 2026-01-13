@@ -6,7 +6,7 @@ import { useCamera, CameraSelector } from './features/camera'
 import { useAudioOutputDevices, AudioPlayerPanel } from './features/audio-player'
 import { useDebug, DebugPanel, type RenderMode } from './features/debug'
 import { useBackgroundImage } from './features/background'
-import { CommentOverlay } from './features/comments/CommentOverlay'
+import { TrackedTextOverlay } from './features/tracked-text/TrackedTextOverlay'
 
 // Lib
 import { ensureCanvasSize, drawTestPattern, drawStatusPlaceholder } from './lib/canvas'
@@ -212,7 +212,7 @@ function App() {
           }}
         />
         <canvas ref={canvasRef} className="canvas" />
-        <CommentOverlay />
+        <TrackedTextOverlay />
 
         {/* 上部UI */}
         <div className="overlay-ui overlay-ui--top">

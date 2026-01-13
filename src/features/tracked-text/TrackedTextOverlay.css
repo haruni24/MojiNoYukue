@@ -1,0 +1,238 @@
+.trackedTextOverlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 40;
+}
+
+.trackedTextOverlay__stage {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.trackedTextOverlay__label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform:
+    translate3d(var(--x, 0px), var(--y, 0px), 0)
+    translate(-50%, -50%)
+    rotate(var(--rotation, 0deg))
+    scale(var(--scale, 1));
+  opacity: var(--opacity, 1);
+  filter: blur(var(--blur, 0px));
+  max-width: min(520px, 70vw);
+  padding: 0.85rem 1.35rem;
+  border-radius: 18px;
+  color: rgba(255, 255, 255, 0.98);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  background: hsla(var(--hue, 200), 70%, 10%, 0.42);
+  border: 1px solid hsla(var(--hue, 200), 85%, 72%, 0.35);
+  box-shadow:
+    0 14px 48px rgba(0, 0, 0, 0.35),
+    0 0 70px hsla(var(--hue, 200), 85%, 62%, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+  will-change: transform, opacity, filter;
+  user-select: none;
+}
+
+.trackedTextOverlay__labelMeta {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.trackedTextOverlay__hud {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  width: min(760px, calc(100vw - 2rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  pointer-events: none;
+  z-index: 120;
+}
+
+.trackedTextOverlay__statusRow {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  pointer-events: auto;
+  padding: 0.55rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(20, 20, 24, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+
+.trackedTextOverlay__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.trackedTextOverlay__badgeDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(180, 180, 180, 0.9);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.35);
+}
+
+.trackedTextOverlay__badgeDot--open {
+  background: rgba(34, 197, 94, 0.95);
+  box-shadow: 0 0 14px rgba(34, 197, 94, 0.35);
+}
+
+.trackedTextOverlay__badgeDot--connecting {
+  background: rgba(250, 204, 21, 0.95);
+  box-shadow: 0 0 14px rgba(250, 204, 21, 0.35);
+}
+
+.trackedTextOverlay__badgeDot--error {
+  background: rgba(239, 68, 68, 0.95);
+  box-shadow: 0 0 14px rgba(239, 68, 68, 0.35);
+}
+
+.trackedTextOverlay__control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.trackedTextOverlay__select,
+.trackedTextOverlay__input,
+.trackedTextOverlay__urlInput {
+  border: none;
+  outline: none;
+  color: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.82rem;
+}
+
+.trackedTextOverlay__select {
+  padding-right: 1.6rem;
+}
+
+.trackedTextOverlay__urlInput {
+  width: min(420px, 55vw);
+}
+
+.trackedTextOverlay__composer {
+  pointer-events: auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(20, 20, 24, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+
+.trackedTextOverlay__composer:focus-within {
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow:
+    0 12px 34px rgba(0, 0, 0, 0.25),
+    0 0 0 3px rgba(255, 255, 255, 0.12);
+}
+
+.trackedTextOverlay__input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  padding: 0 0.5rem;
+  font-size: 1rem;
+}
+
+.trackedTextOverlay__input::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.trackedTextOverlay__error {
+  pointer-events: auto;
+  padding: 0.5rem 0.75rem;
+  border-radius: 14px;
+  background: rgba(239, 68, 68, 0.22);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.trackedTextOverlay__slots {
+  pointer-events: auto;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.trackedTextOverlay__slotChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.trackedTextOverlay__slotChipText {
+  max-width: min(240px, 52vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trackedTextOverlay__slotClear {
+  pointer-events: auto;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(239, 68, 68, 0.25);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.trackedTextOverlay__slotClear:hover {
+  background: rgba(239, 68, 68, 0.35);
+}
+
