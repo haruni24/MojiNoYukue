@@ -17,3 +17,64 @@
   overflow: hidden;
   background-color: #000; /* マッピングなので黒背景が一般的 */
 }
+
+.special-text {
+  position: absolute;
+  left: -20vw;
+  top: var(--top, 50%);
+  transform: translateY(-50%);
+  font-size: 3rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: hsl(var(--hue, 210) 90% 72%);
+  text-shadow:
+    0 0 12px hsla(var(--hue, 210) 90% 70% / 0.7),
+    0 0 36px hsla(var(--hue, 210) 90% 60% / 0.5),
+    0 0 64px hsla(var(--hue, 210) 90% 55% / 0.35);
+  filter: blur(6px);
+  opacity: 0;
+  animation:
+    takeuchi-enter 4.2s cubic-bezier(0.18, 0.86, 0.22, 1) forwards,
+    takeuchi-flicker 1.4s ease-in-out 0.4s infinite alternate;
+  mix-blend-mode: screen;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+@keyframes takeuchi-enter {
+  0% {
+    transform: translate(-20vw, -50%) scale(0.7) skewX(-8deg);
+    opacity: 0;
+    filter: blur(12px);
+    letter-spacing: 0.6em;
+  }
+  35% {
+    opacity: 1;
+    filter: blur(5px);
+  }
+  70% {
+    transform: translate(44vw, -50%) scale(1.08) skewX(-1deg);
+    letter-spacing: 0.12em;
+  }
+  100% {
+    transform: translate(52vw, -50%) scale(1) skewX(0deg);
+    opacity: 0.92;
+    filter: blur(0);
+    letter-spacing: 0.08em;
+  }
+}
+
+@keyframes takeuchi-flicker {
+  from {
+    text-shadow:
+      0 0 10px hsla(var(--hue, 210) 90% 75% / 0.65),
+      0 0 28px hsla(var(--hue, 210) 90% 60% / 0.45),
+      0 0 52px hsla(var(--hue, 210) 90% 55% / 0.35);
+  }
+  to {
+    text-shadow:
+      0 0 16px hsla(var(--hue, 210) 90% 80% / 0.85),
+      0 0 40px hsla(var(--hue, 210) 90% 65% / 0.6),
+      0 0 70px hsla(var(--hue, 210) 90% 55% / 0.45);
+  }
+}

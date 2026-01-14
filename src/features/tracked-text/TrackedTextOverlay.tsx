@@ -14,6 +14,7 @@ type LabelSlot = {
   assignedTrackId: number | null
   hue: number
   updatedAt: number
+  assignedAt: number
 }
 
 type SpringState = {
@@ -39,6 +40,12 @@ type MarkerSpringState = {
   opacity: number
   vOpacity: number
   hue: number
+}
+
+type Cam1FlowState = {
+  tracks: Map<number, { xN: number; yN: number; lastSeenAt: number }>
+  sentAt: Map<number, number>
+  cooldownUntil: number
 }
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
@@ -72,8 +79,8 @@ const saveLocalStorage = (key: string, value: string) => {
 }
 
 const defaultLabels = (): LabelSlot[] => [
-  { slot: 0, text: '', assignedTrackId: null, hue: 210, updatedAt: 0 },
-  { slot: 1, text: '', assignedTrackId: null, hue: 35, updatedAt: 0 },
+  { slot: 0, text: '', assignedTrackId: null, hue: 210, updatedAt: 0, assignedAt: 0 },
+  { slot: 1, text: '', assignedTrackId: null, hue: 35, updatedAt: 0, assignedAt: 0 },
 ]
 
 const getLargestTracks = (tracks: TrackingTrack[], count: number) => {
@@ -89,17 +96,37 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
 
   const tracking = useTrackingSse(sseUrl, { enabled: Boolean(sseUrl) })
 
+  const takeuchiChannelRef = useRef<BroadcastChannel | null>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const labelElsRef = useRef<Record<number, HTMLDivElement | null>>({ 0: null, 1: null })
   const markerElsRef = useRef<Map<number, HTMLDivElement>>(new Map())
   const springsRef = useRef<Record<number, SpringState>>({})
   const markerSpringsRef = useRef<Map<number, MarkerSpringState>>(new Map())
   const labelsRef = useRef<LabelSlot[]>(labels)
-  const tracksRef = useRef<Map<number, TrackingTrack>>(new Map())
-  const sourceSizeRef = useRef<{ w: number; h: number } | null>(null)
+  const lastAssignedRef = useRef<Map<number, { text: string; hue: number; assignedAt: number }>>(new Map())
+  const markerTracksRef = useRef<Map<number, TrackingTrack>>(new Map())
+  const labelTracksRef = useRef<Map<number, TrackingTrack>>(new Map())
+  const markerSourceSizeRef = useRef<{ w: number; h: number } | null>(null)
+  const labelSourceSizeRef = useRef<{ w: number; h: number } | null>(null)
   const mirrorXRef = useRef<boolean>(mirrorX)
+  const cam1FlowRef = useRef<Cam1FlowState>({
+    tracks: new Map(),
+    sentAt: new Map(),
+    cooldownUntil: 0,
+  })
   useEffect(() => {
     labelsRef.current = labels
+    const now = Date.now()
+    const map = lastAssignedRef.current
+    for (const slot of labels) {
+      if (slot.assignedTrackId === null || !slot.text.trim()) continue
+      map.set(slot.assignedTrackId, { text: slot.text, hue: slot.hue, assignedAt: slot.assignedAt || now })
+    }
+    for (const [id, entry] of map) {
+      if (now - entry.assignedAt > 8000) {
+        map.delete(id)
+      }
+    }
   }, [labels])
 
   useEffect(() => {
@@ -107,15 +134,21 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
   }, [mirrorX])
 
   const currentMessage = tracking.tracksByCameraIndex[cameraIndex]
+  const labelMessage = currentMessage
   const currentTracks = currentMessage?.tracks ?? []
+  const labelTracks = labelMessage?.tracks ?? []
 
   useEffect(() => {
-    tracksRef.current = new Map(currentTracks.map((track) => [track.id, track]))
+    markerTracksRef.current = new Map(currentTracks.map((track) => [track.id, track]))
   }, [currentTracks])
 
   useEffect(() => {
-    sourceSizeRef.current = currentMessage?.size ?? null
+    markerSourceSizeRef.current = currentMessage?.size ?? null
   }, [currentMessage?.size?.h, currentMessage?.size?.w])
+
+  useEffect(() => {
+    labelSourceSizeRef.current = labelMessage?.size ?? null
+  }, [labelMessage?.size?.h, labelMessage?.size?.w])
 
   const cameraOptions = useMemo(() => {
     if (tracking.cameras.length > 0) {
@@ -160,13 +193,30 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
     return () => window.removeEventListener('storage', onStorage)
   }, [])
 
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return
+    const channel = new BroadcastChannel('mojinoyukue-takeuchi')
+    takeuchiChannelRef.current = channel
+    return () => {
+      channel.close()
+      if (takeuchiChannelRef.current === channel) {
+        takeuchiChannelRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    labelTracksRef.current = new Map(labelTracks.map((track) => [track.id, track]))
+  }, [labelTracks])
+
   // 追跡IDの割り当て（既存割り当てを優先しつつ、空きがあれば大きいbboxから埋める）
   useEffect(() => {
     setLabels((prev) => {
+      const now = Date.now()
       const active = prev.filter((slot) => slot.text.trim().length > 0)
       if (active.length === 0) return prev
 
-      const visibleIds = new Set(currentTracks.map((track) => track.id))
+      const visibleIds = new Set(labelTracks.map((track) => track.id))
       let changed = false
 
       const next = prev.map((slot) => {
@@ -175,13 +225,13 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
           return slot
         }
         if (slot.assignedTrackId !== null) changed = true
-        return { ...slot, assignedTrackId: null }
+        return { ...slot, assignedTrackId: null, assignedAt: now }
       })
 
       const used = new Set<number>(
         next.flatMap((slot) => (slot.text.trim() && slot.assignedTrackId !== null ? [slot.assignedTrackId] : []))
       )
-      const candidates = currentTracks.filter((track) => !used.has(track.id))
+      const candidates = labelTracks.filter((track) => !used.has(track.id))
       const sorted = getLargestTracks(candidates, 2)
 
       for (const slotIndex of [0, 1] as const) {
@@ -190,13 +240,13 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
         if (slot.assignedTrackId !== null) continue
         const pick = sorted.shift()
         if (!pick) continue
-        next[slotIndex] = { ...slot, assignedTrackId: pick.id }
+        next[slotIndex] = { ...slot, assignedTrackId: pick.id, assignedAt: now }
         changed = true
       }
 
       return changed ? next : prev
     })
-  }, [cameraIndex, currentTracks])
+  }, [cameraIndex, labelTracks])
 
   // 割り当てが変わったときの「吸い付き」パルス用
   useEffect(() => {
@@ -223,30 +273,37 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
       lastT = t
 
       if (w > 1 && h > 1) {
-        const tracks = tracksRef.current
+        const markerTracks = markerTracksRef.current
+        const labelTracks = labelTracksRef.current
         const slots = labelsRef.current
 
-        const source = sourceSizeRef.current
-        const sourceW = source?.w ?? w
-        const sourceH = source?.h ?? h
-        const coverScale = Math.max(w / Math.max(1, sourceW), h / Math.max(1, sourceH))
-        const displayW = sourceW * coverScale
-        const displayH = sourceH * coverScale
-        const offsetX = (w - displayW) / 2
-        const offsetY = (h - displayH) / 2
-        const toStageX = (xN: number) => offsetX + xN * sourceW * coverScale
-        const toStageY = (yN: number) => offsetY + yN * sourceH * coverScale
+        const buildMapper = (source: { w: number; h: number } | null) => {
+          const sourceW = source?.w ?? w
+          const sourceH = source?.h ?? h
+          const coverScale = Math.max(w / Math.max(1, sourceW), h / Math.max(1, sourceH))
+          const displayW = sourceW * coverScale
+          const displayH = sourceH * coverScale
+          const offsetX = (w - displayW) / 2
+          const offsetY = (h - displayH) / 2
+          return {
+            toStageX: (xN: number) => offsetX + xN * sourceW * coverScale,
+            toStageY: (yN: number) => offsetY + yN * sourceH * coverScale,
+          }
+        }
+
+        const markerMapper = buildMapper(markerSourceSizeRef.current)
+        const labelMapper = buildMapper(labelSourceSizeRef.current)
 
         const activeTrackIds = new Set<number>()
-        for (const [id, track] of tracks) {
+        for (const [id, track] of markerTracks) {
           activeTrackIds.add(id)
           const el = markerElsRef.current.get(id)
           if (!el) continue
 
           const xN = clamp(mirrorXRef.current ? 1 - track.centerN[0] : track.centerN[0], 0, 1)
           const yN = clamp(track.centerN[1], 0, 1)
-          const targetX = toStageX(xN)
-          const targetY = toStageY(yN)
+          const targetX = markerMapper.toStageX(xN)
+          const targetY = markerMapper.toStageY(yN)
           const depth = clamp(Math.sqrt(clamp(track.areaN ?? 0, 0, 1)), 0, 1)
           const targetSize = clamp(16 + depth * 26, 14, 44)
           const targetOpacity = clamp(0.35 + (track.conf ?? 0) * 0.75, 0.25, 1)
@@ -322,7 +379,7 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
               pulseStartMs: t,
             })
 
-          const track = slot.assignedTrackId === null ? undefined : tracks.get(slot.assignedTrackId)
+          const track = slot.assignedTrackId === null ? undefined : labelTracks.get(slot.assignedTrackId)
 
           let targetX = w * (slot.slot === 0 ? 0.35 : 0.65)
           let targetY = h * 0.75
@@ -332,8 +389,8 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
           if (track) {
             const yN = clamp(track.centerN[1], 0.02, 0.98)
             const xN = clamp(mirrorXRef.current ? 1 - track.centerN[0] : track.centerN[0], 0.02, 0.98)
-            targetX = toStageX(xN)
-            targetY = toStageY(yN)
+            targetX = labelMapper.toStageX(xN)
+            targetY = labelMapper.toStageY(yN)
 
             const depth = clamp(Math.sqrt(clamp(track.areaN ?? 0, 0, 1)), 0, 1)
             targetScale = clamp(0.92 + depth * 1.15, 0.85, 1.9)
@@ -386,6 +443,69 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
     return () => cancelAnimationFrame(rafId)
   }, [])
 
+  useEffect(() => {
+    if (!currentMessage) return
+
+    const rightEdgeThreshold = 0.82
+    const staleTrackMs = 2200
+    const recentGoneMs = 1400
+    const perTrackCooldownMs = 1800
+
+    const state = cam1FlowRef.current
+
+    const now = Date.now()
+    const currentIds = new Set<number>()
+
+    for (const track of currentMessage.tracks) {
+      const xN = clamp(mirrorXRef.current ? 1 - track.centerN[0] : track.centerN[0], 0, 1)
+      const yN = clamp(track.centerN[1], 0, 1)
+      currentIds.add(track.id)
+      state.tracks.set(track.id, { xN, yN, lastSeenAt: now })
+    }
+
+    for (const [id, info] of state.tracks) {
+      if (currentIds.has(id)) continue
+      const age = now - info.lastSeenAt
+      const sentAt = state.sentAt.get(id) ?? 0
+      if (
+        age < recentGoneMs &&
+        info.xN >= rightEdgeThreshold &&
+        now >= state.cooldownUntil &&
+        now - sentAt > perTrackCooldownMs
+      ) {
+        const assigned = lastAssignedRef.current.get(id)
+        const fallback = labelsRef.current.find((slot) => slot.assignedTrackId === id && slot.text.trim())
+        const text = assigned?.text ?? fallback?.text
+        const hue = assigned?.hue ?? fallback?.hue
+        if (text && typeof hue === 'number') {
+          const payload = {
+            type: 'takeuchi-text',
+            id: `${now}-${Math.round(Math.random() * 1e6)}`,
+            text,
+            hue,
+            yN: info.yN,
+            at: now,
+          }
+          try {
+            takeuchiChannelRef.current?.postMessage(payload)
+          } catch {
+            // ignore
+          }
+          try {
+            window.localStorage.setItem('takeuchi.trigger', JSON.stringify(payload))
+          } catch {
+            // ignore
+          }
+          state.sentAt.set(id, now)
+          state.cooldownUntil = now + 600
+        }
+      }
+      if (age > staleTrackMs) {
+        state.tracks.delete(id)
+      }
+    }
+  }, [currentMessage, mirrorX])
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const normalized = input.trim().slice(0, 80)
@@ -413,7 +533,9 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
   const clearSlot = (slotIndex: LabelSlotIndex) => {
     setLabels((prev) =>
       prev.map((slot) =>
-        slot.slot === slotIndex ? { ...slot, text: '', assignedTrackId: null, updatedAt: Date.now() } : slot
+        slot.slot === slotIndex
+          ? { ...slot, text: '', assignedTrackId: null, updatedAt: Date.now(), assignedAt: Date.now() }
+          : slot
       )
     )
   }

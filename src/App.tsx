@@ -10,6 +10,7 @@ import { TrackedTextOverlay } from './features/tracked-text/TrackedTextOverlay'
 // Lib
 import { ensureCanvasSize, drawTestPattern, drawStatusPlaceholder } from './lib/canvas'
 import { ensureSettingsWindow } from './lib/ensureSettingsWindow'
+import { ensureTakeuchiWindow } from './lib/ensureTakeuchiWindow'
 
 // Segmentation
 import { useImageSegmentation, applyBackgroundReplacement } from './useImageSegmentation'
@@ -26,6 +27,7 @@ function App() {
 
   useEffect(() => {
     void ensureSettingsWindow({ focus: false })
+    void ensureTakeuchiWindow({ focus: false })
 
     const onKeyDown = (event: KeyboardEvent) => {
       const isMac = navigator.platform.toLowerCase().includes('mac')

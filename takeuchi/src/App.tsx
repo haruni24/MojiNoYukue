@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect, type CSSProperties } from 'react';
 import './App.css';
 
 // --- ゾーン定義（前回と同じ） ---
@@ -116,11 +116,21 @@ interface MessageData {
   speed: number;
 }
 
+interface SpecialMessage {
+  id: string;
+  text: string;
+  yN: number;
+  hue: number;
+  createdAt: number;
+}
+
 function App() {
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [csvData, setCsvData] = useState<string[]>([]);
+  const [specials, setSpecials] = useState<SpecialMessage[]>([]);
   const nextId = useRef(0); // ユニークなIDを生成するためのカウンター
   const csvIndex = useRef(0); // 次に表示するCSVデータの行番号
+  const cleanupTimersRef = useRef<number[]>([]);
 
   const handleRemove = (idToRemove: number) => {
     setMessages((prev) => prev.filter((msg) => msg.id !== idToRemove));
@@ -179,6 +189,64 @@ function App() {
 
   }, [csvData]); // csvDataがセットされたらこのeffectを実行
 
+  useEffect(() => {
+    const handlePayload = (payload: unknown) => {
+      if (!payload || typeof payload !== 'object') return;
+      const data = payload as {
+        type?: string;
+        id?: string;
+        text?: string;
+        yN?: number;
+        hue?: number;
+        at?: number;
+      };
+      if (data.type !== 'takeuchi-text') return;
+      if (typeof data.text !== 'string' || !data.text.trim()) return;
+      const id = typeof data.id === 'string' ? data.id : `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+      const yN = typeof data.yN === 'number' && Number.isFinite(data.yN) ? data.yN : 0.5;
+      const hue = typeof data.hue === 'number' && Number.isFinite(data.hue) ? data.hue : 210;
+      const createdAt = typeof data.at === 'number' && Number.isFinite(data.at) ? data.at : Date.now();
+      const message: SpecialMessage = {
+        id,
+        text: data.text.trim(),
+        yN: Math.min(0.95, Math.max(0.05, yN)),
+        hue,
+        createdAt,
+      };
+
+      setSpecials((prev) => [...prev, message].slice(-12));
+      const timer = window.setTimeout(() => {
+        setSpecials((prev) => prev.filter((item) => item.id !== id));
+      }, 4500);
+      cleanupTimersRef.current.push(timer);
+    };
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      channel = new BroadcastChannel('mojinoyukue-takeuchi');
+      channel.addEventListener('message', (event) => handlePayload(event.data));
+    }
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== 'takeuchi.trigger' || !event.newValue) return;
+      try {
+        const parsed = JSON.parse(event.newValue) as unknown;
+        handlePayload(parsed);
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+
+    return () => {
+      if (channel) channel.close();
+      window.removeEventListener('storage', onStorage);
+      cleanupTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      cleanupTimersRef.current = [];
+    };
+  }, []);
+
   return (
     <div className="App">
       {/* ゾーン表示（本番では消す） */}
@@ -205,6 +273,21 @@ function App() {
           speed={msg.speed}
           onComplete={handleRemove}
         />
+      ))}
+
+      {specials.map((msg) => (
+        <div
+          key={msg.id}
+          className="special-text"
+          style={
+            {
+              ['--top' as unknown as string]: `${msg.yN * 100}%`,
+              ['--hue' as unknown as string]: String(msg.hue),
+            } as CSSProperties
+          }
+        >
+          {msg.text}
+        </div>
       ))}
     </div>
   );

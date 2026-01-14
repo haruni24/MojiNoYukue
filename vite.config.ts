@@ -21,6 +21,7 @@ export default defineConfig({
       input: {
         main: 'index.html',
         settings: 'settings.html',
+        takeuchi: 'takeuchi.html',
       },
     },
   },
