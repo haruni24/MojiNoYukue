@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react'
 import './App.css';
 import { GlassText } from './glass/GlassText';
 import { VISUAL_CONFIG } from './visualConfig';
+import { getPerfSettings } from './performance';
 
 function seededUnit(seed: number) {
   let t = seed >>> 0;
@@ -39,12 +40,26 @@ interface MovingTextProps {
   top: number;
   speed: number;
   onComplete: (id: number) => void;
+  targetFps: number;
+  enableDynamicFilter: boolean;
+  quality: 'high' | 'low';
+  viewportW: number;
+  viewportH: number;
 }
 
 type ExitMode = 'evaporate' | 'sink' | 'shatter';
 
 const MovingText: React.FC<MovingTextProps> = ({ 
-  id, text, top, speed, onComplete 
+  id,
+  text,
+  top,
+  speed,
+  onComplete,
+  targetFps,
+  enableDynamicFilter,
+  quality,
+  viewportW,
+  viewportH,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number | null>(null);
@@ -54,6 +69,7 @@ const MovingText: React.FC<MovingTextProps> = ({
     () => lerp(VISUAL_CONFIG.motion.scaleFar, VISUAL_CONFIG.motion.scaleNear, depth),
     [depth],
   );
+  const zIndex = useMemo(() => String(2 + Math.round(depth * 10)), [depth]);
   const exitMode = useMemo<ExitMode>(() => {
     const r = seededUnit(id * 4813 + 29);
     if (r < 0.16) return 'shatter';
@@ -69,22 +85,30 @@ const MovingText: React.FC<MovingTextProps> = ({
     initialized: false,
     createdAt: 0,
     lastNow: 0,
+    lastPaintNow: 0,
     x: 0,
     y: 0,
     vx: 0,
     vy: 0,
     rot: 0,
     rotV: 0,
+    lastGlintQ: -1,
+    lastFilter: '',
   });
 
   useEffect(() => {
+    if (containerRef.current) containerRef.current.style.zIndex = zIndex;
+  }, [zIndex]);
+
+  useEffect(() => {
     const animate = () => {
-      if (containerRef.current) {
+      const el = containerRef.current;
+      if (el) {
         const now = performance.now();
         const motion = motionRef.current;
         if (!motion.initialized) {
-          const w = window.innerWidth;
-          const h = window.innerHeight;
+          const w = viewportW || window.innerWidth;
+          const h = viewportH || window.innerHeight;
           const yBase = (top / 100) * h;
           motion.x = seededRange(id * 3301 + 97, -w * 0.1, w * 1.1);
           motion.y = Math.min(h * 0.95, Math.max(h * 0.05, yBase + seededRange(id * 3511 + 101, -h * 0.16, h * 0.16)));
@@ -96,16 +120,32 @@ const MovingText: React.FC<MovingTextProps> = ({
           motion.rotV = seededRange(id * 4211 + 113, -18, 18) * (0.25 + depth);
           motion.createdAt = now;
           motion.lastNow = now;
+          motion.lastPaintNow = now - 1000 / Math.max(1, targetFps);
           motion.initialized = true;
+          el.style.zIndex = zIndex;
+          if (!enableDynamicFilter) el.style.filter = 'none';
         }
 
-        const dt = Math.min(0.034, Math.max(0.001, (now - motion.lastNow) / 1000));
-        motion.lastNow = now;
         const ageMs = now - motion.createdAt;
+        if (ageMs >= ttlMs) {
+          onComplete(id);
+          return;
+        }
+
+        const frameIntervalMs = 1000 / Math.max(1, targetFps);
+        if (now - motion.lastPaintNow < frameIntervalMs) {
+          requestRef.current = requestAnimationFrame(animate);
+          return;
+        }
+        motion.lastPaintNow = now;
+
+        const maxDt = Math.min(0.06, (1 / Math.max(20, targetFps)) * 1.6);
+        const dt = Math.min(maxDt, Math.max(0.001, (now - motion.lastNow) / 1000));
+        motion.lastNow = now;
         const t = now / 1000;
 
-        const w = window.innerWidth;
-        const h = window.innerHeight;
+        const w = viewportW || window.innerWidth;
+        const h = viewportH || window.innerHeight;
 
         const anchorX = w * (0.5 + 0.22 * Math.sin(t * 0.09 + phase * 0.35));
         const anchorY = h * (0.5 + 0.18 * Math.cos(t * 0.07 + phase * 0.52));
@@ -212,21 +252,27 @@ const MovingText: React.FC<MovingTextProps> = ({
         }
 
         const scale = baseScale * (1 + 0.06 * (1 - enterN)) * (1 + 0.05 * (exitMode === 'evaporate' ? exitN : 0));
-        const brightness = 0.96 + 0.14 * glint + 0.08 * depth;
-        const contrast = 1.04 + 0.12 * glint + 0.06 * depth;
+        el.style.opacity = String(alpha);
 
-        const z = 2 + Math.round(depth * 10);
-        containerRef.current.style.zIndex = String(z);
-        containerRef.current.style.opacity = String(alpha);
-        containerRef.current.style.filter = `blur(${blur.toFixed(2)}px) brightness(${brightness.toFixed(3)}) contrast(${contrast.toFixed(3)})`;
-        if (letterSpacing) containerRef.current.style.letterSpacing = letterSpacing;
-        containerRef.current.style.setProperty('--glint', String(glint));
-        containerRef.current.style.transform = `translate3d(${(motion.x + floatX + exitDx).toFixed(2)}px, ${(motion.y + floatY + exitDy).toFixed(2)}px, 0) rotate(${(motion.rot + microRot + exitRot).toFixed(3)}deg) scale(${scale.toFixed(4)})`;
-
-        if (ageMs >= ttlMs) {
-          onComplete(id);
-          return;
+        if (enableDynamicFilter && quality !== 'low') {
+          const blurQ = Math.round(blur * 4) / 4;
+          const brightnessQ = Math.round((0.96 + 0.14 * glint + 0.08 * depth) * 100) / 100;
+          const contrastQ = Math.round((1.04 + 0.12 * glint + 0.06 * depth) * 100) / 100;
+          const filter = `blur(${blurQ}px) brightness(${brightnessQ}) contrast(${contrastQ})`;
+          if (filter !== motion.lastFilter) {
+            el.style.filter = filter;
+            motion.lastFilter = filter;
+          }
+          if (letterSpacing) el.style.letterSpacing = letterSpacing;
         }
+
+        const glintQ = Math.round(glint * 50) / 50;
+        if (glintQ !== motion.lastGlintQ) {
+          el.style.setProperty('--glint', String(glintQ));
+          motion.lastGlintQ = glintQ;
+        }
+
+        el.style.transform = `translate3d(${(motion.x + floatX + exitDx).toFixed(2)}px, ${(motion.y + floatY + exitDy).toFixed(2)}px, 0) rotate(${(motion.rot + microRot + exitRot).toFixed(3)}deg) scale(${scale.toFixed(4)})`;
       }
 
       requestRef.current = requestAnimationFrame(animate);
@@ -236,15 +282,33 @@ const MovingText: React.FC<MovingTextProps> = ({
     return () => {
       if (requestRef.current !== null) cancelAnimationFrame(requestRef.current);
     };
-  }, [id, speed, onComplete, phase, top, depth, baseScale, exitMode, ttlMs]);
+  }, [
+    id,
+    speed,
+    onComplete,
+    phase,
+    top,
+    depth,
+    baseScale,
+    exitMode,
+    ttlMs,
+    targetFps,
+    enableDynamicFilter,
+    quality,
+    viewportW,
+    viewportH,
+    zIndex,
+  ]);
 
   return (
     <div
       ref={containerRef}
-      className="moving-text-container"
+      className={['moving-text-container', quality === 'low' ? 'moving-text-container--low' : null]
+        .filter(Boolean)
+        .join(' ')}
       style={{ top: 0, left: 0, willChange: 'transform, opacity, filter' }}
     >
-      <GlassText text={text} hue={VISUAL_CONFIG.glass.hue} />
+      <GlassText text={text} hue={VISUAL_CONFIG.glass.hue} quality={quality} />
     </div>
   );
 };
@@ -269,6 +333,11 @@ function App() {
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [csvData, setCsvData] = useState<string[]>([]);
   const [specials, setSpecials] = useState<SpecialMessage[]>([]);
+  const [viewport, setViewport] = useState(() => {
+    if (typeof window === 'undefined') return { w: 0, h: 0 };
+    return { w: window.innerWidth, h: window.innerHeight };
+  });
+  const perf = useMemo(() => getPerfSettings(), []);
   const nextId = useRef(0); // ユニークなIDを生成するためのカウンター
   const csvIndex = useRef(0); // 次に表示するCSVデータの行番号
   const cleanupTimersRef = useRef<number[]>([]);
@@ -297,10 +366,15 @@ function App() {
           .filter((text) => text !== '');
 
         setCsvData(columnBData);
-        console.log("B列のデータ:", columnBData);
       })
       .catch((error) => console.error("CSV読み込みエラー:", error));
   }, []); // 最初の一回だけ実行
+
+  useEffect(() => {
+    const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', onResize, { passive: true });
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   // csvDataが更新されたら、メッセージ生成のインターバルを開始
   useEffect(() => {
@@ -321,14 +395,14 @@ function App() {
       };
 
       // 画面上のメッセージが15個を超えないようにする
-      setMessages((prev) => [...prev, newMessage].slice(-15));
+      setMessages((prev) => [...prev, newMessage].slice(-perf.maxMovingTexts));
 
     }, 2000); // 2秒ごとに新しいメッセージを生成
 
     // コンポーネントがアンマウントされた時にインターバルをクリア
     return () => clearInterval(intervalId);
 
-  }, [csvData]); // csvDataがセットされたらこのeffectを実行
+  }, [csvData, perf.maxMovingTexts]); // csvDataがセットされたらこのeffectを実行
 
   useEffect(() => {
     const handlePayload = (payload: unknown) => {
@@ -355,7 +429,7 @@ function App() {
         createdAt,
       };
 
-      setSpecials((prev) => [...prev, message].slice(-12));
+      setSpecials((prev) => [...prev, message].slice(-perf.maxSpecials));
       const timer = window.setTimeout(() => {
         setSpecials((prev) => prev.filter((item) => item.id !== id));
       }, 4500);
@@ -386,7 +460,7 @@ function App() {
       cleanupTimersRef.current.forEach((timer) => window.clearTimeout(timer));
       cleanupTimersRef.current = [];
     };
-  }, []);
+  }, [perf.maxSpecials]);
 
   const appStyle = useMemo(() => {
     return {
@@ -399,26 +473,28 @@ function App() {
 
   return (
     <div className="App" style={appStyle}>
-      <svg className="glass-defs" aria-hidden="true" focusable="false">
-        <filter id="glass-text-filter" x="-50%" y="-50%" width="200%" height="200%" colorInterpolationFilters="sRGB">
-          <feGaussianBlur in="SourceAlpha" stdDeviation="1.2" result="a" />
-          <feSpecularLighting
-            in="a"
-            surfaceScale="2.6"
-            specularConstant="0.9"
-            specularExponent="26"
-            lightingColor="#ffffff"
-            result="spec"
-          >
-            <feDistantLight azimuth="225" elevation="58" />
-          </feSpecularLighting>
-          <feComposite in="spec" in2="SourceAlpha" operator="in" result="specMask" />
-          <feMerge>
-            <feMergeNode in="SourceGraphic" />
-            <feMergeNode in="specMask" />
-          </feMerge>
-        </filter>
-      </svg>
+      {perf.enableSvgFilter ? (
+        <svg className="glass-defs" aria-hidden="true" focusable="false">
+          <filter id="glass-text-filter" x="-50%" y="-50%" width="200%" height="200%" colorInterpolationFilters="sRGB">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="1.2" result="a" />
+            <feSpecularLighting
+              in="a"
+              surfaceScale="2.6"
+              specularConstant="0.9"
+              specularExponent="26"
+              lightingColor="#ffffff"
+              result="spec"
+            >
+              <feDistantLight azimuth="225" elevation="58" />
+            </feSpecularLighting>
+            <feComposite in="spec" in2="SourceAlpha" operator="in" result="specMask" />
+            <feMerge>
+              <feMergeNode in="SourceGraphic" />
+              <feMergeNode in="specMask" />
+            </feMerge>
+          </filter>
+        </svg>
+      ) : null}
 
       {messages.map((msg) => (
         <MovingText
@@ -428,6 +504,11 @@ function App() {
           top={msg.top}
           speed={msg.speed}
           onComplete={handleRemove}
+          targetFps={perf.targetFps}
+          enableDynamicFilter={perf.enableDynamicFilter}
+          quality={perf.quality}
+          viewportW={viewport.w}
+          viewportH={viewport.h}
         />
       ))}
 
@@ -442,7 +523,7 @@ function App() {
             } as CSSProperties
           }
         >
-          <GlassText className="special-text" text={msg.text} hue={msg.hue} />
+          <GlassText className="special-text" text={msg.text} hue={msg.hue} quality={perf.quality} />
         </div>
       ))}
     </div>

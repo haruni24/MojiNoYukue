@@ -9,6 +9,12 @@
   pointer-events: none;
   mix-blend-mode: screen;
   transform-origin: 50% 50%;
+  contain: layout paint;
+  backface-visibility: hidden;
+}
+
+.moving-text-container--low {
+  mix-blend-mode: normal;
 }
 
 .App {
@@ -84,5 +90,11 @@
   to {
     opacity: 1;
     filter: brightness(1.08) contrast(1.09) blur(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .special-container {
+    animation: takeuchi-enter 4.2s cubic-bezier(0.18, 0.86, 0.22, 1) forwards;
   }
 }

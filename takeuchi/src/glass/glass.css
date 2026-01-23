@@ -17,6 +17,14 @@
   isolation: isolate;
 }
 
+.glass-text--low {
+  -webkit-text-stroke: 0.75px hsl(var(--glass-hue) 70% 96% / 0.16);
+  text-shadow:
+    0 0 10px hsl(var(--glass-hue) 90% 75% / 0.14),
+    0 12px 18px rgb(0 0 0 / 0.5);
+  filter: none;
+}
+
 .glass-text::before {
   content: attr(data-text);
   position: absolute;
@@ -41,6 +49,12 @@
   mix-blend-mode: screen;
 }
 
+.glass-text--low::before {
+  filter: none;
+  opacity: calc(0.38 + 0.42 * var(--glint));
+  transform: translate(-0.35px, -0.35px);
+}
+
 .glass-text::after {
   content: attr(data-text);
   position: absolute;
@@ -52,6 +66,10 @@
     -1.15px 0 hsl(calc(var(--glass-hue) - 38) 95% 70% / 0.16);
   opacity: 0.9;
   mix-blend-mode: screen;
+}
+
+.glass-text--low::after {
+  opacity: 0.75;
 }
 
 .glass-defs {

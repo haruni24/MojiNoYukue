@@ -6,9 +6,10 @@ type GlassTextProps = {
   className?: string;
   style?: CSSProperties;
   hue?: number;
+  quality?: 'high' | 'low';
 };
 
-export function GlassText({ text, className, style, hue }: GlassTextProps) {
+export function GlassText({ text, className, style, hue, quality = 'high' }: GlassTextProps) {
   const hueStyle =
     hue == null
       ? undefined
@@ -18,7 +19,13 @@ export function GlassText({ text, className, style, hue }: GlassTextProps) {
 
   return (
     <span
-      className={['glass-text', className].filter(Boolean).join(' ')}
+      className={[
+        'glass-text',
+        quality === 'low' ? 'glass-text--low' : null,
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
       data-text={text}
       style={{ ...hueStyle, ...style }}
     >
@@ -26,4 +33,3 @@ export function GlassText({ text, className, style, hue }: GlassTextProps) {
     </span>
   );
 }
-
