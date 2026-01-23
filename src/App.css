@@ -4,7 +4,13 @@
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: #fff;
+  --bg-base: #03060b;
+  --bg-glow-a: rgba(80, 170, 255, 0.18);
+  --bg-glow-b: rgba(255, 110, 210, 0.12);
+  background:
+    radial-gradient(1100px 760px at 22% 24%, var(--bg-glow-a) 0%, rgba(0, 0, 0, 0) 62%),
+    radial-gradient(900px 700px at 78% 78%, var(--bg-glow-b) 0%, rgba(0, 0, 0, 0) 64%),
+    var(--bg-base);
   padding: 0 0px;
   box-sizing: border-box;
 }

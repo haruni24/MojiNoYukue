@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ImageSegmenter, FilesetResolver } from '@mediapipe/tasks-vision'
+import { getTakeuchiBackgroundImageData } from './lib/takeuchiBackground'
 
 export const useImageSegmentation = () => {
   const [segmenter, setSegmenter] = useState<ImageSegmenter | null>(null)
@@ -112,14 +113,8 @@ export const applyBackgroundReplacement = (
       ctx.drawImage(backgroundImage, 0, 0, width, height)
       backgroundImageData = ctx.getImageData(0, 0, width, height)
     } else {
-      // 白い背景
-      backgroundImageData = ctx.createImageData(width, height)
-      for (let i = 0; i < backgroundImageData.data.length; i += 4) {
-        backgroundImageData.data[i] = 255     // R
-        backgroundImageData.data[i + 1] = 255 // G
-        backgroundImageData.data[i + 2] = 255 // B
-        backgroundImageData.data[i + 3] = 255 // A
-      }
+      // takeuchi と同じ配色の背景（画像未設定時のデフォルト）
+      backgroundImageData = getTakeuchiBackgroundImageData(width, height)
     }
 
     // 出力用ImageData

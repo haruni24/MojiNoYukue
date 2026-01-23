@@ -11,6 +11,7 @@ import { TrackedTextOverlay } from './features/tracked-text/TrackedTextOverlay'
 import { ensureCanvasSize, drawTestPattern, drawStatusPlaceholder } from './lib/canvas'
 import { ensureSettingsWindow } from './lib/ensureSettingsWindow'
 import { ensureTakeuchiWindow } from './lib/ensureTakeuchiWindow'
+import { drawTakeuchiBackground } from './lib/takeuchiBackground'
 
 // Segmentation
 import { useImageSegmentation, applyBackgroundReplacement } from './useImageSegmentation'
@@ -85,7 +86,7 @@ function App() {
         typeof OffscreenCanvas === 'undefined'
           ? Object.assign(document.createElement('canvas'), { width: maskWidth, height: maskHeight })
           : new OffscreenCanvas(maskWidth, maskHeight)
-      const maskCtx = maskCanvas.getContext('2d')
+      const maskCtx = maskCanvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null
       if (!maskCtx) return false
 
       const imageData = maskCtx.createImageData(maskWidth, maskHeight)
@@ -139,8 +140,7 @@ function App() {
         if (background.image) {
           ctx.drawImage(background.image, 0, 0, canvasElement.width, canvasElement.height)
         } else {
-          ctx.fillStyle = '#ffffff'
-          ctx.fillRect(0, 0, canvasElement.width, canvasElement.height)
+          drawTakeuchiBackground(ctx, canvasElement.width, canvasElement.height)
         }
       } else if (debug.renderMode === 'raw' || !segmenter) {
         ensureCanvasSize(canvasElement, videoElement.videoWidth, videoElement.videoHeight)
