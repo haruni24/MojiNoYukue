@@ -1,19 +1,17 @@
-import { useState, useEffect, useRef, useLayoutEffect, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import './App.css';
+import { GlassText } from './glass/GlassText';
+import { VISUAL_CONFIG } from './visualConfig';
 
-// --- ゾーン定義（前回と同じ） ---
-interface Zone {
-  start: number;
-  end: number;
-  scale: number;
-  spacing: number;
+function seededUnit(seed: number) {
+  let t = seed >>> 0;
+  t += 0x6d2b79f5;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 
-const PROJECTION_ZONES: Zone[] = [
-  { start: 480, end: 800, scale: 0.95, spacing: 0 },
-];
-
-// --- MovingText コンポーネント（前回と同じ） ---
+// --- MovingText コンポーネント ---
 interface MovingTextProps {
   id: number;
   text: string;
@@ -27,17 +25,9 @@ const MovingText: React.FC<MovingTextProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number | null>(null);
-  const charRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const xPosRef = useRef(-300);
-  const charScalesRef = useRef<number[]>(new Array(text.length).fill(1));
-  const charSpacingsRef = useRef<number[]>(new Array(text.length).fill(0));
-  const charOffsetsRef = useRef<number[]>([]);
-
-  useLayoutEffect(() => {
-    if (charRefs.current.length > 0) {
-      charOffsetsRef.current = charRefs.current.map(span => span?.offsetLeft || 0);
-    }
-  }, [text]);
+  const phase = useMemo(() => seededUnit(id * 9973 + 17) * Math.PI * 2, [id]);
+  const floatScale = useMemo(() => 0.7 + seededUnit(id * 9967 + 23) * 0.9, [id]);
 
   useEffect(() => {
     const animate = () => {
@@ -50,35 +40,13 @@ const MovingText: React.FC<MovingTextProps> = ({
       }
 
       if (containerRef.current) {
-        containerRef.current.style.transform = `translateX(${currentContainerX}px)`;
+        const t = performance.now() / 1000;
+        const baseSpeed = VISUAL_CONFIG.float.speed;
+        const floatY = Math.sin(t * baseSpeed + phase) * VISUAL_CONFIG.float.yPx * floatScale;
+        const floatX = Math.sin(t * baseSpeed * 0.55 + phase * 1.7) * VISUAL_CONFIG.float.xPx * floatScale;
+        const rot = Math.sin(t * baseSpeed * 0.7 + phase * 2.2) * VISUAL_CONFIG.float.rotDeg * floatScale;
+        containerRef.current.style.transform = `translate3d(${currentContainerX + floatX}px, ${floatY}px, 0) rotate(${rot}deg)`;
       }
-
-      charRefs.current.forEach((span, index) => {
-        if (!span) return;
-        const charAbsoluteX = currentContainerX + (charOffsetsRef.current[index] || 0);
-        
-        let targetScale = 1.0;
-        let targetSpacing = 5;
-
-        for (const zone of PROJECTION_ZONES) {
-          if (charAbsoluteX >= zone.start && charAbsoluteX <= zone.end) {
-            targetScale = zone.scale;
-            targetSpacing = zone.spacing;
-            break;
-          }
-        }
-
-        const currentScale = charScalesRef.current[index];
-        const newScale = currentScale + (targetScale - currentScale) * 0.1;
-        charScalesRef.current[index] = newScale;
-
-        const currentSpacing = charSpacingsRef.current[index];
-        const newSpacing = currentSpacing + (targetSpacing - currentSpacing) * 0.2;
-        charSpacingsRef.current[index] = newSpacing;
-        
-        span.style.transform = `scale(${newScale})`;
-        span.style.marginRight = `${newSpacing}px`;
-      });
 
       requestRef.current = requestAnimationFrame(animate);
     };
@@ -87,7 +55,7 @@ const MovingText: React.FC<MovingTextProps> = ({
     return () => {
       if (requestRef.current !== null) cancelAnimationFrame(requestRef.current);
     };
-  }, [id, speed, onComplete, text]);
+  }, [id, speed, onComplete, phase, floatScale]);
 
   return (
     <div
@@ -95,15 +63,7 @@ const MovingText: React.FC<MovingTextProps> = ({
       className="moving-text-container"
       style={{ top: `${top}%`, left: 0, willChange: 'transform' }}
     >
-      {text.split('').map((char, index) => (
-        <span
-          key={index}
-          ref={(el) => { charRefs.current[index] = el; }}
-          style={{ display: 'inline-block', willChange: 'transform, margin', marginRight: '5px' }}
-        >
-          {char === ' ' ? '\u00A0' : char}
-        </span>
-      ))}
+      <GlassText text={text} hue={VISUAL_CONFIG.glass.hue} />
     </div>
   );
 };
@@ -247,22 +207,37 @@ function App() {
     };
   }, []);
 
+  const appStyle = useMemo(() => {
+    return {
+      ['--bg-base' as unknown as string]: VISUAL_CONFIG.background.base,
+      ['--bg-glow-a' as unknown as string]: VISUAL_CONFIG.background.glowA,
+      ['--bg-glow-b' as unknown as string]: VISUAL_CONFIG.background.glowB,
+      ['--bg-vignette' as unknown as string]: String(VISUAL_CONFIG.background.vignette),
+    } as CSSProperties;
+  }, []);
+
   return (
-    <div className="App">
-      {/* ゾーン表示（本番では消す） */}
-      {PROJECTION_ZONES.map((zone, i) => (
-        <div key={i} style={{
-          position: 'absolute',
-          left: `${zone.start}px`,
-          width: `${zone.end - zone.start}px`,
-          height: '100%',
-          backgroundColor: 'rgba(255, 0, 0, 0.2)',
-          borderLeft: '1px solid red',
-          borderRight: '1px solid red',
-          zIndex: 0,
-          pointerEvents: 'none'
-        }} />
-      ))}
+    <div className="App" style={appStyle}>
+      <svg className="glass-defs" aria-hidden="true" focusable="false">
+        <filter id="glass-text-filter" x="-50%" y="-50%" width="200%" height="200%" colorInterpolationFilters="sRGB">
+          <feGaussianBlur in="SourceAlpha" stdDeviation="1.2" result="a" />
+          <feSpecularLighting
+            in="a"
+            surfaceScale="2.6"
+            specularConstant="0.9"
+            specularExponent="26"
+            lightingColor="#ffffff"
+            result="spec"
+          >
+            <feDistantLight azimuth="225" elevation="58" />
+          </feSpecularLighting>
+          <feComposite in="spec" in2="SourceAlpha" operator="in" result="specMask" />
+          <feMerge>
+            <feMergeNode in="SourceGraphic" />
+            <feMergeNode in="specMask" />
+          </feMerge>
+        </filter>
+      </svg>
 
       {messages.map((msg) => (
         <MovingText
@@ -278,7 +253,7 @@ function App() {
       {specials.map((msg) => (
         <div
           key={msg.id}
-          className="special-text"
+          className="special-container"
           style={
             {
               ['--top' as unknown as string]: `${msg.yN * 100}%`,
@@ -286,7 +261,7 @@ function App() {
             } as CSSProperties
           }
         >
-          {msg.text}
+          <GlassText className="special-text" text={msg.text} hue={msg.hue} />
         </div>
       ))}
     </div>
