@@ -8,6 +8,7 @@
   opacity: 0.92;
   pointer-events: none;
   mix-blend-mode: screen;
+  transform-origin: 50% 50%;
 }
 
 .App {

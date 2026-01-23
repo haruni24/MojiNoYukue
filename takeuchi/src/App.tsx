@@ -11,6 +11,27 @@ function seededUnit(seed: number) {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 
+function seededRange(seed: number, min: number, max: number) {
+  return min + (max - min) * seededUnit(seed);
+}
+
+function clamp01(n: number) {
+  return Math.min(1, Math.max(0, n));
+}
+
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t;
+}
+
+function easeInCubic(t: number) {
+  return t * t * t;
+}
+
+function easeOutCubic(t: number) {
+  const p = 1 - t;
+  return 1 - p * p * p;
+}
+
 // --- MovingText コンポーネント ---
 interface MovingTextProps {
   id: number;
@@ -20,32 +41,192 @@ interface MovingTextProps {
   onComplete: (id: number) => void;
 }
 
+type ExitMode = 'evaporate' | 'sink' | 'shatter';
+
 const MovingText: React.FC<MovingTextProps> = ({ 
   id, text, top, speed, onComplete 
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number | null>(null);
-  const xPosRef = useRef(-300);
   const phase = useMemo(() => seededUnit(id * 9973 + 17) * Math.PI * 2, [id]);
-  const floatScale = useMemo(() => 0.7 + seededUnit(id * 9967 + 23) * 0.9, [id]);
+  const depth = useMemo(() => 0.08 + seededUnit(id * 9319 + 11) * 0.92, [id]);
+  const baseScale = useMemo(
+    () => lerp(VISUAL_CONFIG.motion.scaleFar, VISUAL_CONFIG.motion.scaleNear, depth),
+    [depth],
+  );
+  const exitMode = useMemo<ExitMode>(() => {
+    const r = seededUnit(id * 4813 + 29);
+    if (r < 0.16) return 'shatter';
+    if (r < 0.64) return 'evaporate';
+    return 'sink';
+  }, [id]);
+  const ttlMs = useMemo(
+    () => VISUAL_CONFIG.life.ttlBaseMs + seededUnit(id * 19609 + 41) * VISUAL_CONFIG.life.ttlJitterMs,
+    [id],
+  );
+
+  const motionRef = useRef({
+    initialized: false,
+    createdAt: 0,
+    lastNow: 0,
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    rot: 0,
+    rotV: 0,
+  });
 
   useEffect(() => {
     const animate = () => {
-      xPosRef.current += speed;
-      const currentContainerX = xPosRef.current;
-
-      if (currentContainerX > window.innerWidth) {
-        onComplete(id);
-        return;
-      }
-
       if (containerRef.current) {
-        const t = performance.now() / 1000;
-        const baseSpeed = VISUAL_CONFIG.float.speed;
-        const floatY = Math.sin(t * baseSpeed + phase) * VISUAL_CONFIG.float.yPx * floatScale;
-        const floatX = Math.sin(t * baseSpeed * 0.55 + phase * 1.7) * VISUAL_CONFIG.float.xPx * floatScale;
-        const rot = Math.sin(t * baseSpeed * 0.7 + phase * 2.2) * VISUAL_CONFIG.float.rotDeg * floatScale;
-        containerRef.current.style.transform = `translate3d(${currentContainerX + floatX}px, ${floatY}px, 0) rotate(${rot}deg)`;
+        const now = performance.now();
+        const motion = motionRef.current;
+        if (!motion.initialized) {
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          const yBase = (top / 100) * h;
+          motion.x = seededRange(id * 3301 + 97, -w * 0.1, w * 1.1);
+          motion.y = Math.min(h * 0.95, Math.max(h * 0.05, yBase + seededRange(id * 3511 + 101, -h * 0.16, h * 0.16)));
+          const angle = seededRange(id * 3671 + 103, 0, Math.PI * 2);
+          const startSpeed = seededRange(id * 3821 + 107, 22, 62) * (0.55 + depth) * speed;
+          motion.vx = Math.cos(angle) * startSpeed;
+          motion.vy = Math.sin(angle) * startSpeed * 0.72;
+          motion.rot = seededRange(id * 4021 + 109, -8, 8);
+          motion.rotV = seededRange(id * 4211 + 113, -18, 18) * (0.25 + depth);
+          motion.createdAt = now;
+          motion.lastNow = now;
+          motion.initialized = true;
+        }
+
+        const dt = Math.min(0.034, Math.max(0.001, (now - motion.lastNow) / 1000));
+        motion.lastNow = now;
+        const ageMs = now - motion.createdAt;
+        const t = now / 1000;
+
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+
+        const anchorX = w * (0.5 + 0.22 * Math.sin(t * 0.09 + phase * 0.35));
+        const anchorY = h * (0.5 + 0.18 * Math.cos(t * 0.07 + phase * 0.52));
+        const toAx = anchorX - motion.x;
+        const toAy = anchorY - motion.y;
+        const dist = Math.hypot(toAx, toAy) + 0.0001;
+        const nx = toAx / dist;
+        const ny = toAy / dist;
+
+        const energy = Math.max(0.25, Math.min(1.7, speed));
+        const flowAccel = VISUAL_CONFIG.motion.flowAccelPx * (0.35 + depth) * energy;
+        const attractAccel = VISUAL_CONFIG.motion.attractAccelPx * (0.25 + depth) * energy;
+        const swirlAccel = VISUAL_CONFIG.motion.swirlAccelPx * (0.18 + depth) * energy;
+
+        const f1 =
+          Math.sin(t * 0.55 + phase + motion.y * 0.0042) +
+          Math.sin(t * 0.19 + phase * 1.7 + motion.x * 0.0031);
+        const f2 =
+          Math.cos(t * 0.48 + phase * 0.9 + motion.x * 0.004) -
+          Math.sin(t * 0.16 + phase * 1.3 + motion.y * 0.0051);
+        motion.vx += f1 * flowAccel * dt;
+        motion.vy += f2 * flowAccel * dt;
+
+        const attractGain = 0.35 + 0.65 * (1 - Math.min(1, dist / (Math.min(w, h) * 0.72)));
+        motion.vx += nx * attractAccel * attractGain * dt;
+        motion.vy += ny * attractAccel * attractGain * dt;
+        motion.vx += -ny * swirlAccel * dt;
+        motion.vy += nx * swirlAccel * dt;
+
+        const damp = Math.exp(-VISUAL_CONFIG.motion.dampingPerSec * dt);
+        motion.vx *= damp;
+        motion.vy *= damp;
+
+        const maxSpeed = VISUAL_CONFIG.motion.maxSpeedPx * (0.3 + depth) * energy;
+        const v = Math.hypot(motion.vx, motion.vy);
+        if (v > maxSpeed) {
+          const s = maxSpeed / v;
+          motion.vx *= s;
+          motion.vy *= s;
+        }
+
+        motion.x += motion.vx * dt;
+        motion.y += motion.vy * dt;
+        motion.rot += motion.rotV * dt;
+
+        const margin = VISUAL_CONFIG.motion.boundsMarginPx;
+        if (motion.x < -margin) {
+          motion.x = -margin;
+          motion.vx = Math.abs(motion.vx) * 0.88;
+          motion.vy += Math.sin(t * 2.7 + phase) * 18;
+        } else if (motion.x > w + margin) {
+          motion.x = w + margin;
+          motion.vx = -Math.abs(motion.vx) * 0.88;
+          motion.vy += Math.cos(t * 2.3 + phase) * 18;
+        }
+        if (motion.y < -margin) {
+          motion.y = -margin;
+          motion.vy = Math.abs(motion.vy) * 0.88;
+          motion.vx += Math.cos(t * 2.1 + phase) * 18;
+        } else if (motion.y > h + margin) {
+          motion.y = h + margin;
+          motion.vy = -Math.abs(motion.vy) * 0.88;
+          motion.vx += Math.sin(t * 2.5 + phase) * 18;
+        }
+
+        const enterN = clamp01(ageMs / VISUAL_CONFIG.life.enterMs);
+        const exitN = clamp01((ageMs - (ttlMs - VISUAL_CONFIG.life.exitMs)) / VISUAL_CONFIG.life.exitMs);
+        const alpha = (0.42 + 0.58 * depth) * easeOutCubic(enterN) * (1 - easeInCubic(exitN));
+
+        const bob = 0.55 + 0.65 * depth;
+        const baseSpeed = VISUAL_CONFIG.float.speed * (0.75 + 0.45 * depth);
+        const floatY = Math.sin(t * baseSpeed + phase) * VISUAL_CONFIG.float.yPx * bob;
+        const floatX = Math.sin(t * baseSpeed * 0.55 + phase * 1.7) * VISUAL_CONFIG.float.xPx * bob;
+        const microRot = Math.sin(t * baseSpeed * 0.7 + phase * 2.2) * VISUAL_CONFIG.float.rotDeg * bob;
+
+        const glintPulse = Math.max(0, Math.sin(t * 0.75 + phase + motion.x * 0.0012));
+        const glint = 0.25 + 0.75 * glintPulse * glintPulse;
+
+        let exitDx = 0;
+        let exitDy = 0;
+        let exitRot = 0;
+        let blur = (1 - enterN) * 5.5 + exitN * VISUAL_CONFIG.life.exitBlurPx;
+        let letterSpacing = '';
+
+        if (exitN > 0) {
+          if (exitMode === 'evaporate') {
+            exitDy = -VISUAL_CONFIG.life.exitRisePx * easeOutCubic(exitN);
+            exitRot = -3.5 * exitN;
+            blur += exitN * 2.2;
+            letterSpacing = `${0.12 + 0.08 * exitN}em`;
+          } else if (exitMode === 'sink') {
+            exitDy = VISUAL_CONFIG.life.exitSinkPx * easeInCubic(exitN);
+            exitRot = 2.8 * exitN;
+            blur += exitN * 1.6;
+            letterSpacing = `${0.12 + 0.05 * exitN}em`;
+          } else {
+            const j = easeOutCubic(exitN);
+            exitDx = Math.sin(t * 27 + phase) * 12 * j;
+            exitDy = Math.cos(t * 31 + phase) * 10 * j;
+            exitRot = Math.sin(t * 23 + phase) * 6 * j;
+            blur += exitN * 4.8;
+            letterSpacing = `${0.12 + 0.28 * j}em`;
+          }
+        }
+
+        const scale = baseScale * (1 + 0.06 * (1 - enterN)) * (1 + 0.05 * (exitMode === 'evaporate' ? exitN : 0));
+        const brightness = 0.96 + 0.14 * glint + 0.08 * depth;
+        const contrast = 1.04 + 0.12 * glint + 0.06 * depth;
+
+        const z = 2 + Math.round(depth * 10);
+        containerRef.current.style.zIndex = String(z);
+        containerRef.current.style.opacity = String(alpha);
+        containerRef.current.style.filter = `blur(${blur.toFixed(2)}px) brightness(${brightness.toFixed(3)}) contrast(${contrast.toFixed(3)})`;
+        if (letterSpacing) containerRef.current.style.letterSpacing = letterSpacing;
+        containerRef.current.style.setProperty('--glint', String(glint));
+        containerRef.current.style.transform = `translate3d(${(motion.x + floatX + exitDx).toFixed(2)}px, ${(motion.y + floatY + exitDy).toFixed(2)}px, 0) rotate(${(motion.rot + microRot + exitRot).toFixed(3)}deg) scale(${scale.toFixed(4)})`;
+
+        if (ageMs >= ttlMs) {
+          onComplete(id);
+          return;
+        }
       }
 
       requestRef.current = requestAnimationFrame(animate);
@@ -55,13 +236,13 @@ const MovingText: React.FC<MovingTextProps> = ({
     return () => {
       if (requestRef.current !== null) cancelAnimationFrame(requestRef.current);
     };
-  }, [id, speed, onComplete, phase, floatScale]);
+  }, [id, speed, onComplete, phase, top, depth, baseScale, exitMode, ttlMs]);
 
   return (
     <div
       ref={containerRef}
       className="moving-text-container"
-      style={{ top: `${top}%`, left: 0, willChange: 'transform' }}
+      style={{ top: 0, left: 0, willChange: 'transform, opacity, filter' }}
     >
       <GlassText text={text} hue={VISUAL_CONFIG.glass.hue} />
     </div>
@@ -135,8 +316,8 @@ function App() {
       const newMessage: MessageData = {
         id: nextId.current++,
         text: text,
-        top: Math.random() * 90, // 画面の上から90%の範囲でランダム
-        speed: Math.random() * 2 + 1, // 1〜3のランダムな速度
+        top: Math.random() * 78 + 8, // 初期y（％）
+        speed: Math.random() * 0.7 + 0.75, // エネルギー係数（自由移動の強さ）
       };
 
       // 画面上のメッセージが15個を超えないようにする
