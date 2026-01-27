@@ -237,6 +237,19 @@ def _resize_to_height(img: np.ndarray, height: int) -> np.ndarray:
     return cv2.resize(img, (new_w, height), interpolation=cv2.INTER_AREA)
 
 
+def _compute_anchor_point(x1: int, y1: int, x2: int, y2: int, w: int, h: int) -> tuple[int, int]:
+    # ただのbbox中心だと「頭(上端)の上下」に対する追従が弱いので、上端寄り(でも中心っぽい)の点を採用する
+    # yは「上から0.42(=42%)」付近。上端が動いた時に中心(50%)より強めに連動する。
+    anchor_y_ratio_from_top = 0.42
+
+    cx = int(round((x1 + x2) / 2.0))
+    cy = int(round(y1 + (y2 - y1) * anchor_y_ratio_from_top))
+
+    cx = int(np.clip(cx, 0, max(0, w - 1)))
+    cy = int(np.clip(cy, 0, max(0, h - 1)))
+    return cx, cy
+
+
 def annotate_tracking_frame(frame, result, state, args):
     state["frame_i"] += 1
     frame_i = state["frame_i"]
@@ -274,8 +287,7 @@ def annotate_tracking_frame(frame, result, state, args):
 
             last_seen[tid] = frame_i
 
-            cx = int((x1 + x2) / 2)
-            cy = int((y1 + y2) / 2)
+            cx, cy = _compute_anchor_point(x1, y1, x2, y2, w=w, h=h)
             trails[tid].append((cx, cy))
 
             bw = max(0, x2 - x1)

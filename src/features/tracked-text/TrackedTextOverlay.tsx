@@ -4,6 +4,7 @@ import { useTrackingSse, type TrackingTrack } from '../tracking/useTrackingSse'
 
 export type TrackedTextOverlayProps = {
   showStatusControls?: boolean
+  showMarkers?: boolean
 }
 
 type LabelSlotIndex = 0 | 1
@@ -87,7 +88,8 @@ const getLargestTracks = (tracks: TrackingTrack[], count: number) => {
   return [...tracks].sort((a, b) => (b.areaN ?? 0) - (a.areaN ?? 0)).slice(0, count)
 }
 
-export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOverlayProps) {
+export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: TrackedTextOverlayProps) {
+  const resolvedShowMarkers = showMarkers ?? showStatusControls
   const [sseUrl, setSseUrl] = useState(() => loadLocalStorageString('tracking.sseUrl', 'http://127.0.0.1:8765/stream'))
   const [cameraIndex, setCameraIndex] = useState(() => loadLocalStorageNumber('tracking.cameraIndex', 0))
   const [mirrorX, setMirrorX] = useState(() => loadLocalStorageBoolean('tracking.mirrorX', true))
@@ -109,6 +111,7 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
   const markerSourceSizeRef = useRef<{ w: number; h: number } | null>(null)
   const labelSourceSizeRef = useRef<{ w: number; h: number } | null>(null)
   const mirrorXRef = useRef<boolean>(mirrorX)
+  const showMarkersRef = useRef<boolean>(resolvedShowMarkers)
   const cam1FlowRef = useRef<Cam1FlowState>({
     tracks: new Map(),
     sentAt: new Map(),
@@ -132,6 +135,14 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
   useEffect(() => {
     mirrorXRef.current = mirrorX
   }, [mirrorX])
+
+  useEffect(() => {
+    showMarkersRef.current = resolvedShowMarkers
+    if (!resolvedShowMarkers) {
+      markerElsRef.current.clear()
+      markerSpringsRef.current.clear()
+    }
+  }, [resolvedShowMarkers])
 
   const currentMessage = tracking.tracksByCameraIndex[cameraIndex]
   const labelMessage = currentMessage
@@ -273,7 +284,7 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
       lastT = t
 
       if (w > 1 && h > 1) {
-        const markerTracks = markerTracksRef.current
+        const markerTracks = showMarkersRef.current ? markerTracksRef.current : null
         const labelTracks = labelTracksRef.current
         const slots = labelsRef.current
 
@@ -294,64 +305,67 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
         const markerMapper = buildMapper(markerSourceSizeRef.current)
         const labelMapper = buildMapper(labelSourceSizeRef.current)
 
-        const activeTrackIds = new Set<number>()
-        for (const [id, track] of markerTracks) {
-          activeTrackIds.add(id)
-          const el = markerElsRef.current.get(id)
-          if (!el) continue
+        if (markerTracks) {
+          const activeTrackIds = new Set<number>()
+          for (const [id, track] of markerTracks) {
+            activeTrackIds.add(id)
+            const el = markerElsRef.current.get(id)
+            if (!el) continue
 
-          const xN = clamp(mirrorXRef.current ? 1 - track.centerN[0] : track.centerN[0], 0, 1)
-          const yN = clamp(track.centerN[1], 0, 1)
-          const targetX = markerMapper.toStageX(xN)
-          const targetY = markerMapper.toStageY(yN)
-          const depth = clamp(Math.sqrt(clamp(track.areaN ?? 0, 0, 1)), 0, 1)
-          const targetSize = clamp(16 + depth * 26, 14, 44)
-          const targetOpacity = clamp(0.35 + (track.conf ?? 0) * 0.75, 0.25, 1)
+            const xN = clamp(mirrorXRef.current ? 1 - track.centerN[0] : track.centerN[0], 0, 1)
+            const yN = clamp(track.centerN[1], 0, 1)
+            const targetX = markerMapper.toStageX(xN)
+            const targetY = markerMapper.toStageY(yN)
+            const depth = clamp(Math.sqrt(clamp(track.areaN ?? 0, 0, 1)), 0, 1)
+            const targetSize = clamp(16 + depth * 26, 14, 44)
+            const targetOpacity = clamp(0.35 + (track.conf ?? 0) * 0.75, 0.25, 1)
 
-          let spring = markerSpringsRef.current.get(id)
-          if (!spring) {
-            spring = {
-              x: targetX,
-              y: targetY,
-              vx: 0,
-              vy: 0,
-              size: targetSize,
-              vSize: 0,
-              opacity: targetOpacity,
-              vOpacity: 0,
-              hue: (id * 67) % 360,
+            let spring = markerSpringsRef.current.get(id)
+            if (!spring) {
+              spring = {
+                x: targetX,
+                y: targetY,
+                vx: 0,
+                vy: 0,
+                size: targetSize,
+                vSize: 0,
+                opacity: targetOpacity,
+                vOpacity: 0,
+                hue: (id * 67) % 360,
+              }
+              markerSpringsRef.current.set(id, spring)
             }
-            markerSpringsRef.current.set(id, spring)
+
+            const stiffness = 220
+            const damping = 30
+            const ax = (targetX - spring.x) * stiffness - spring.vx * damping
+            const ay = (targetY - spring.y) * stiffness - spring.vy * damping
+            spring.vx += ax * dt
+            spring.vy += ay * dt
+            spring.x += spring.vx * dt
+            spring.y += spring.vy * dt
+
+            const asize = (targetSize - spring.size) * (stiffness * 0.85) - spring.vSize * (damping * 0.9)
+            spring.vSize += asize * dt
+            spring.size += spring.vSize * dt
+
+            const aopacity =
+              (targetOpacity - spring.opacity) * (stiffness * 0.85) - spring.vOpacity * (damping * 0.8)
+            spring.vOpacity += aopacity * dt
+            spring.opacity += spring.vOpacity * dt
+            spring.opacity = clamp(spring.opacity, 0, 1)
+
+            el.style.setProperty('--x', `${spring.x.toFixed(2)}px`)
+            el.style.setProperty('--y', `${spring.y.toFixed(2)}px`)
+            el.style.setProperty('--size', `${spring.size.toFixed(2)}px`)
+            el.style.setProperty('--opacity', `${spring.opacity.toFixed(4)}`)
+            el.style.setProperty('--hue', `${spring.hue}`)
+            el.style.zIndex = String(Math.round(1200 + depth * 20))
           }
 
-          const stiffness = 220
-          const damping = 30
-          const ax = (targetX - spring.x) * stiffness - spring.vx * damping
-          const ay = (targetY - spring.y) * stiffness - spring.vy * damping
-          spring.vx += ax * dt
-          spring.vy += ay * dt
-          spring.x += spring.vx * dt
-          spring.y += spring.vy * dt
-
-          const asize = (targetSize - spring.size) * (stiffness * 0.85) - spring.vSize * (damping * 0.9)
-          spring.vSize += asize * dt
-          spring.size += spring.vSize * dt
-
-          const aopacity = (targetOpacity - spring.opacity) * (stiffness * 0.85) - spring.vOpacity * (damping * 0.8)
-          spring.vOpacity += aopacity * dt
-          spring.opacity += spring.vOpacity * dt
-          spring.opacity = clamp(spring.opacity, 0, 1)
-
-          el.style.setProperty('--x', `${spring.x.toFixed(2)}px`)
-          el.style.setProperty('--y', `${spring.y.toFixed(2)}px`)
-          el.style.setProperty('--size', `${spring.size.toFixed(2)}px`)
-          el.style.setProperty('--opacity', `${spring.opacity.toFixed(4)}`)
-          el.style.setProperty('--hue', `${spring.hue}`)
-          el.style.zIndex = String(Math.round(1200 + depth * 20))
-        }
-
-        for (const id of markerSpringsRef.current.keys()) {
-          if (!activeTrackIds.has(id)) markerSpringsRef.current.delete(id)
+          for (const id of markerSpringsRef.current.keys()) {
+            if (!activeTrackIds.has(id)) markerSpringsRef.current.delete(id)
+          }
         }
 
         for (const slot of slots) {
@@ -543,18 +557,19 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
   return (
     <div className="trackedTextOverlay">
       <div ref={stageRef} className="trackedTextOverlay__stage" aria-hidden="true">
-        {currentTracks.map((track) => (
-          <div
-            key={`marker-${track.id}`}
-            ref={(el) => {
-              if (el) markerElsRef.current.set(track.id, el)
-              else markerElsRef.current.delete(track.id)
-            }}
-            className="trackedTextOverlay__marker"
-          >
-            <span className="trackedTextOverlay__markerId">{track.id}</span>
-          </div>
-        ))}
+        {resolvedShowMarkers &&
+          currentTracks.map((track) => (
+            <div
+              key={`marker-${track.id}`}
+              ref={(el) => {
+                if (el) markerElsRef.current.set(track.id, el)
+                else markerElsRef.current.delete(track.id)
+              }}
+              className="trackedTextOverlay__marker"
+            >
+              <span className="trackedTextOverlay__markerId">{track.id}</span>
+            </div>
+          ))}
 
         {labels.map((slot) => (
           <div
@@ -566,9 +581,11 @@ export function TrackedTextOverlay({ showStatusControls = true }: TrackedTextOve
             style={{ ['--hue' as unknown as string]: String(slot.hue) } as CSSProperties}
           >
             {slot.text}
-            <span className="trackedTextOverlay__labelMeta">
-              cam={cameraIndex} id={slot.assignedTrackId ?? '-'}
-            </span>
+            {showStatusControls && (
+              <span className="trackedTextOverlay__labelMeta">
+                cam={cameraIndex} id={slot.assignedTrackId ?? '-'}
+              </span>
+            )}
           </div>
         ))}
       </div>
