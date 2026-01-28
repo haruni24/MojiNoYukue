@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import './TrackedTextOverlay.css'
 import { useTrackingSse, type TrackingTrack } from '../tracking/useTrackingSse'
+import { GlassText } from '../../components/GlassText'
+import { MAX_FLOATING_TEXTS, PERSON_SCALE } from '../../config/scene'
 
 export type TrackedTextOverlayProps = {
   showStatusControls?: boolean
@@ -16,6 +18,19 @@ type LabelSlot = {
   hue: number
   updatedAt: number
   assignedAt: number
+}
+
+type FloatingText = {
+  id: string
+  text: string
+  hue: number
+  createdAt: number
+  xN: number
+  yN: number
+  driftX: number
+  driftY: number
+  driftDuration: number
+  driftDelay: number
 }
 
 type SpringState = {
@@ -41,6 +56,15 @@ type MarkerSpringState = {
   opacity: number
   vOpacity: number
   hue: number
+}
+
+type FloatingSpringState = {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  opacity: number
+  vOpacity: number
 }
 
 type Cam1FlowState = {
@@ -88,6 +112,22 @@ const getLargestTracks = (tracks: TrackingTrack[], count: number) => {
   return [...tracks].sort((a, b) => (b.areaN ?? 0) - (a.areaN ?? 0)).slice(0, count)
 }
 
+const createFloatingText = (text: string, hue: number): FloatingText => {
+  const seed = Math.random()
+  return {
+    id: `float-${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+    text,
+    hue,
+    createdAt: Date.now(),
+    xN: 0.2 + seed * 0.6,
+    yN: 0.12 + Math.random() * 0.76,
+    driftX: (Math.random() * 2 - 1) * 18,
+    driftY: (Math.random() * 2 - 1) * 12,
+    driftDuration: 6 + Math.random() * 6,
+    driftDelay: Math.random() * 2.4,
+  }
+}
+
 export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: TrackedTextOverlayProps) {
   const resolvedShowMarkers = showMarkers ?? showStatusControls
   const [sseUrl, setSseUrl] = useState(() => loadLocalStorageString('tracking.sseUrl', 'http://127.0.0.1:8765/stream'))
@@ -95,6 +135,7 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
   const [mirrorX, setMirrorX] = useState(() => loadLocalStorageBoolean('tracking.mirrorX', true))
   const [input, setInput] = useState('')
   const [labels, setLabels] = useState<LabelSlot[]>(() => defaultLabels())
+  const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([])
 
   const tracking = useTrackingSse(sseUrl, { enabled: Boolean(sseUrl) })
 
@@ -105,6 +146,9 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
   const springsRef = useRef<Record<number, SpringState>>({})
   const markerSpringsRef = useRef<Map<number, MarkerSpringState>>(new Map())
   const labelsRef = useRef<LabelSlot[]>(labels)
+  const floatingElsRef = useRef<Map<string, HTMLDivElement>>(new Map())
+  const floatingSpringsRef = useRef<Map<string, FloatingSpringState>>(new Map())
+  const floatingTextsRef = useRef<FloatingText[]>(floatingTexts)
   const lastAssignedRef = useRef<Map<number, { text: string; hue: number; assignedAt: number }>>(new Map())
   const markerTracksRef = useRef<Map<number, TrackingTrack>>(new Map())
   const labelTracksRef = useRef<Map<number, TrackingTrack>>(new Map())
@@ -131,6 +175,10 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
       }
     }
   }, [labels])
+
+  useEffect(() => {
+    floatingTextsRef.current = floatingTexts
+  }, [floatingTexts])
 
   useEffect(() => {
     mirrorXRef.current = mirrorX
@@ -394,6 +442,56 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
           }
         }
 
+        if (floatingTextsRef.current.length > 0) {
+          const freeHeight = Math.max(1, h * (1 - PERSON_SCALE))
+          const activeFloatIds = new Set<string>()
+          for (const float of floatingTextsRef.current) {
+            activeFloatIds.add(float.id)
+            const el = floatingElsRef.current.get(float.id)
+            if (!el) continue
+
+            const xN = clamp(float.xN, 0.08, 0.92)
+            const yN = clamp(float.yN, 0.08, 0.92)
+            const targetX = xN * w
+            const targetY = yN * freeHeight
+
+            let spring = floatingSpringsRef.current.get(float.id)
+            if (!spring) {
+              spring = {
+                x: targetX,
+                y: targetY,
+                vx: 0,
+                vy: 0,
+                opacity: 0,
+                vOpacity: 0,
+              }
+              floatingSpringsRef.current.set(float.id, spring)
+            }
+
+            const stiffness = 140
+            const damping = 24
+            const ax = (targetX - spring.x) * stiffness - spring.vx * damping
+            const ay = (targetY - spring.y) * stiffness - spring.vy * damping
+            spring.vx += ax * dt
+            spring.vy += ay * dt
+            spring.x += spring.vx * dt
+            spring.y += spring.vy * dt
+
+            const aopacity = (1 - spring.opacity) * (stiffness * 0.5) - spring.vOpacity * (damping * 0.8)
+            spring.vOpacity += aopacity * dt
+            spring.opacity += spring.vOpacity * dt
+            spring.opacity = clamp(spring.opacity, 0, 1)
+
+            el.style.setProperty('--x', `${spring.x.toFixed(2)}px`)
+            el.style.setProperty('--y', `${spring.y.toFixed(2)}px`)
+            el.style.setProperty('--opacity', `${spring.opacity.toFixed(4)}`)
+          }
+
+          for (const id of floatingSpringsRef.current.keys()) {
+            if (!activeFloatIds.has(id)) floatingSpringsRef.current.delete(id)
+          }
+        }
+
         for (const slot of slots) {
           const el = labelElsRef.current[slot.slot]
           if (!el) continue
@@ -551,27 +649,51 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
     const normalized = input.trim().slice(0, 80)
     if (!normalized) return
 
-    setLabels((prev) => {
-      const updatedAt = Date.now()
-      const candidates = prev.filter((slot) => slot.text.trim().length === 0)
-      let slotIndex: LabelSlotIndex = candidates.length > 0 ? candidates[0].slot : 0
-      if (candidates.length === 0) {
-        const oldest = prev.reduce((min, slot) => (slot.updatedAt < min.updatedAt ? slot : min), prev[0])
-        slotIndex = oldest.slot
-      }
+    const updatedAt = Date.now()
+    const snapshot = labelsRef.current
+    const empty = snapshot.filter((slot) => slot.text.trim().length === 0)
+    let slotIndex: LabelSlotIndex = empty.length > 0 ? empty[0].slot : 0
+    let pushedSlot: LabelSlot | null = null
+    if (empty.length === 0) {
+      const oldest = snapshot.reduce((min, slot) => (slot.updatedAt < min.updatedAt ? slot : min), snapshot[0])
+      slotIndex = oldest.slot
+      pushedSlot = oldest
+    }
 
-      const next = prev.map((slot) => {
-        if (slot.slot !== slotIndex) return slot
-        return { ...slot, text: normalized, updatedAt }
-      })
-      return next
-    })
+    if (pushedSlot && pushedSlot.text.trim()) {
+      const floatItem = createFloatingText(pushedSlot.text, pushedSlot.hue)
+      setFloatingTexts((prev) => [...prev, floatItem].slice(-MAX_FLOATING_TEXTS))
+    }
+
+    setLabels((prev) =>
+      prev.map((slot) => (slot.slot === slotIndex ? { ...slot, text: normalized, updatedAt } : slot))
+    )
 
     setInput('')
   }
 
   return (
     <div className="trackedTextOverlay">
+      <svg className="glass-defs" aria-hidden="true" focusable="false">
+        <filter id="glass-text-filter" x="-50%" y="-50%" width="200%" height="200%" colorInterpolationFilters="sRGB">
+          <feGaussianBlur in="SourceAlpha" stdDeviation="1.2" result="a" />
+          <feSpecularLighting
+            in="a"
+            surfaceScale="2.6"
+            specularConstant="0.9"
+            specularExponent="26"
+            lightingColor="#ffffff"
+            result="spec"
+          >
+            <feDistantLight azimuth="225" elevation="58" />
+          </feSpecularLighting>
+          <feComposite in="spec" in2="SourceAlpha" operator="in" result="specMask" />
+          <feMerge>
+            <feMergeNode in="SourceGraphic" />
+            <feMergeNode in="specMask" />
+          </feMerge>
+        </filter>
+      </svg>
       <div ref={stageRef} className="trackedTextOverlay__stage" aria-hidden="true">
         {resolvedShowMarkers &&
           currentTracks.map((track) => (
@@ -587,6 +709,29 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
             </div>
           ))}
 
+        {floatingTexts.map((float) => (
+          <div
+            key={float.id}
+            ref={(el) => {
+              if (el) floatingElsRef.current.set(float.id, el)
+              else floatingElsRef.current.delete(float.id)
+            }}
+            className="trackedTextOverlay__float"
+            style={
+              {
+                ['--drift-x' as unknown as string]: `${float.driftX.toFixed(2)}px`,
+                ['--drift-y' as unknown as string]: `${float.driftY.toFixed(2)}px`,
+                ['--drift-duration' as unknown as string]: `${float.driftDuration.toFixed(2)}s`,
+                ['--drift-delay' as unknown as string]: `${float.driftDelay.toFixed(2)}s`,
+              } as CSSProperties
+            }
+          >
+            <div className="trackedTextOverlay__floatInner">
+              <GlassText className="trackedTextOverlay__floatText" text={float.text} hue={float.hue} />
+            </div>
+          </div>
+        ))}
+
         {labels.map((slot) => (
           <div
             key={slot.slot}
@@ -594,9 +739,8 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
               labelElsRef.current[slot.slot] = el
             }}
             className="trackedTextOverlay__label"
-            style={{ ['--hue' as unknown as string]: String(slot.hue) } as CSSProperties}
           >
-            {slot.text}
+            <GlassText className="trackedTextOverlay__labelText" text={slot.text} hue={slot.hue} />
             {showStatusControls && (
               <span className="trackedTextOverlay__labelMeta">
                 cam={cameraIndex} id={slot.assignedTrackId ?? '-'}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ImageSegmenter, FilesetResolver } from '@mediapipe/tasks-vision'
 import { drawTakeuchiBackground } from './lib/takeuchiBackground'
+import { PERSON_SCALE } from './config/scene'
 
 let scratchCanvas: HTMLCanvasElement | OffscreenCanvas | null = null
 let scratchCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null
@@ -86,8 +87,7 @@ export const applyBackgroundReplacement = (
   if (canvasElement.width !== width) canvasElement.width = width
   if (canvasElement.height !== height) canvasElement.height = height
 
-  const personScale = 0.5
-  const scale = Math.max(0.1, Math.min(personScale, 1))
+  const scale = Math.max(0.1, Math.min(PERSON_SCALE, 1))
   const drawW = Math.max(1, width * scale)
   const drawH = Math.max(1, height * scale)
   const drawX = (width - drawW) / 2

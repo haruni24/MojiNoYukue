@@ -23,23 +23,18 @@
     scale(var(--scale, 1));
   opacity: var(--opacity, 1);
   filter: blur(var(--blur, 0px));
-  max-width: min(520px, 70vw);
-  padding: 0.85rem 1.35rem;
-  border-radius: 18px;
-  color: rgba(255, 255, 255, 0.98);
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  background: hsla(var(--hue, 200), 70%, 10%, 0.42);
-  border: 1px solid hsla(var(--hue, 200), 85%, 72%, 0.35);
-  box-shadow:
-    0 14px 48px rgba(0, 0, 0, 0.35),
-    0 0 70px hsla(var(--hue, 200), 85%, 62%, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
-  backdrop-filter: blur(18px) saturate(150%);
-  -webkit-backdrop-filter: blur(18px) saturate(150%);
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+  max-width: min(560px, 76vw);
   will-change: transform, opacity, filter;
   user-select: none;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.trackedTextOverlay__labelText {
+  font-size: clamp(1.6rem, 2.6vw, 3rem);
+  font-weight: 620;
+  letter-spacing: 0.22em;
+  mix-blend-mode: screen;
 }
 
 .trackedTextOverlay__labelMeta {
@@ -49,6 +44,56 @@
   font-weight: 650;
   letter-spacing: 0.02em;
   color: rgba(255, 255, 255, 0.7);
+}
+
+.trackedTextOverlay__float {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate3d(var(--x, 0px), var(--y, 0px), 0) translate(-50%, -50%);
+  opacity: var(--opacity, 1);
+  will-change: transform, opacity;
+  pointer-events: none;
+  z-index: 900;
+}
+
+.trackedTextOverlay__floatInner {
+  animation:
+    trackedTextOverlay-float-push 0.9s cubic-bezier(0.2, 0.85, 0.2, 1) both,
+    trackedTextOverlay-float-drift var(--drift-duration, 8s) ease-in-out infinite;
+  animation-delay: 0s, var(--drift-delay, 0s);
+}
+
+.trackedTextOverlay__floatText {
+  font-size: clamp(1.2rem, 2.1vw, 2.4rem);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  mix-blend-mode: screen;
+}
+
+@keyframes trackedTextOverlay-float-push {
+  0% {
+    transform: translateY(18px) scale(0.96);
+    opacity: 0;
+  }
+  60% {
+    transform: translateY(-6px) scale(1.03);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes trackedTextOverlay-float-drift {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(var(--drift-x, 12px), var(--drift-y, -6px));
+  }
 }
 
 .trackedTextOverlay__marker {
