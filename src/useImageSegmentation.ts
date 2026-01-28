@@ -1,6 +1,22 @@
 import { useEffect, useState } from 'react'
 import { ImageSegmenter, FilesetResolver } from '@mediapipe/tasks-vision'
-import { getTakeuchiBackgroundImageData } from './lib/takeuchiBackground'
+import { drawTakeuchiBackground } from './lib/takeuchiBackground'
+
+let scratchCanvas: HTMLCanvasElement | OffscreenCanvas | null = null
+let scratchCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null
+let scratchSize = { w: 0, h: 0 }
+
+const ensureScratchContext = (width: number, height: number) => {
+  if (!scratchCanvas || scratchSize.w !== width || scratchSize.h !== height) {
+    scratchCanvas =
+      typeof OffscreenCanvas === 'undefined'
+        ? Object.assign(document.createElement('canvas'), { width, height })
+        : new OffscreenCanvas(width, height)
+    scratchCtx = scratchCanvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null
+    scratchSize = { w: width, h: height }
+  }
+  return { canvas: scratchCanvas, ctx: scratchCtx }
+}
 
 export const useImageSegmentation = () => {
   const [segmenter, setSegmenter] = useState<ImageSegmenter | null>(null)
@@ -70,6 +86,30 @@ export const applyBackgroundReplacement = (
   if (canvasElement.width !== width) canvasElement.width = width
   if (canvasElement.height !== height) canvasElement.height = height
 
+  const personScale = 0.5
+  const scale = Math.max(0.1, Math.min(personScale, 1))
+  const drawW = Math.max(1, width * scale)
+  const drawH = Math.max(1, height * scale)
+  const drawX = (width - drawW) / 2
+  const drawY = height - drawH
+
+  const drawBackground = () => {
+    if (backgroundImage) {
+      ctx.clearRect(0, 0, width, height)
+      ctx.drawImage(backgroundImage, 0, 0, width, height)
+    } else {
+      drawTakeuchiBackground(ctx, width, height)
+    }
+  }
+
+  const drawScaledVideo = () => {
+    drawBackground()
+    ctx.save()
+    ctx.imageSmoothingEnabled = true
+    ctx.drawImage(videoElement, drawX, drawY, drawW, drawH)
+    ctx.restore()
+  }
+
   // セグメンテーション実行
   const result = segmenter.segmentForVideo(videoElement, timestamp)
 
@@ -97,32 +137,23 @@ export const applyBackgroundReplacement = (
     const maskWidth = confidenceMask.width
     const maskHeight = confidenceMask.height
     if (maskWidth <= 0 || maskHeight <= 0 || mask.length === 0) {
-      ctx.drawImage(videoElement, 0, 0, width, height)
+      drawScaledVideo()
       return
     }
 
-    // まずビデオフレームを描画
-    ctx.drawImage(videoElement, 0, 0, width, height)
-    const videoImageData = ctx.getImageData(0, 0, width, height)
-
-    // 背景用のImageDataを作成
-    let backgroundImageData: ImageData
-
-    if (backgroundImage) {
-      // 背景画像を描画
-      ctx.drawImage(backgroundImage, 0, 0, width, height)
-      backgroundImageData = ctx.getImageData(0, 0, width, height)
-    } else {
-      // takeuchi と同じ配色の背景（画像未設定時のデフォルト）
-      backgroundImageData = getTakeuchiBackgroundImageData(width, height)
+    const { canvas: scratchCanvas, ctx: scratchCtx } = ensureScratchContext(width, height)
+    if (!scratchCtx) {
+      drawScaledVideo()
+      return
     }
 
-    // 出力用ImageData
-    const outputImageData = ctx.createImageData(width, height)
+    scratchCtx.clearRect(0, 0, width, height)
+    scratchCtx.drawImage(videoElement, 0, 0, width, height)
+    const videoImageData = scratchCtx.getImageData(0, 0, width, height)
+    const outputImageData = scratchCtx.createImageData(width, height)
 
     const outputData = outputImageData.data
     const videoData = videoImageData.data
-    const backgroundData = backgroundImageData.data
 
     // マスクを適用して合成（マスク解像度が入力と異なる場合に備えてスケーリング）
     for (let y = 0; y < height; y++) {
@@ -139,20 +170,23 @@ export const applyBackgroundReplacement = (
 
         const pixelIndex = (rowOffset + x) * 4
 
-        // マスク値に基づいてブレンド（人物部分はビデオ、背景部分は背景画像）
-        outputData[pixelIndex] =
-          videoData[pixelIndex] * maskValue + backgroundData[pixelIndex] * (1 - maskValue)
-        outputData[pixelIndex + 1] =
-          videoData[pixelIndex + 1] * maskValue + backgroundData[pixelIndex + 1] * (1 - maskValue)
-        outputData[pixelIndex + 2] =
-          videoData[pixelIndex + 2] * maskValue + backgroundData[pixelIndex + 2] * (1 - maskValue)
-        outputData[pixelIndex + 3] = 255
+        const alpha = Math.round(maskValue * 255)
+        outputData[pixelIndex] = videoData[pixelIndex]
+        outputData[pixelIndex + 1] = videoData[pixelIndex + 1]
+        outputData[pixelIndex + 2] = videoData[pixelIndex + 2]
+        outputData[pixelIndex + 3] = alpha
       }
     }
 
-    ctx.putImageData(outputImageData, 0, 0)
+    scratchCtx.putImageData(outputImageData, 0, 0)
+
+    drawBackground()
+    ctx.save()
+    ctx.imageSmoothingEnabled = true
+    ctx.drawImage(scratchCanvas as unknown as CanvasImageSource, drawX, drawY, drawW, drawH)
+    ctx.restore()
   } else {
     // セグメンテーション結果がない場合はビデオをそのまま表示
-    ctx.drawImage(videoElement, 0, 0, width, height)
+    drawScaledVideo()
   }
 }
