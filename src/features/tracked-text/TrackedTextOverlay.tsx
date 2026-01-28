@@ -239,6 +239,32 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
         return { ...slot, assignedTrackId: null, assignedAt: now }
       })
 
+      if (labelTracks.length === 1) {
+        const onlyTrack = labelTracks[0]
+        const activeSlots = next.filter((slot) => slot.text.trim())
+        if (activeSlots.length === 0) return changed ? next : prev
+        const mostRecent = activeSlots.reduce((latest, slot) =>
+          slot.updatedAt >= latest.updatedAt ? slot : latest
+        , activeSlots[0])
+
+        const final = next.map((slot) => {
+          if (!slot.text.trim()) return slot
+          const shouldAssign = slot.slot === mostRecent.slot
+          if (shouldAssign) {
+            if (slot.assignedTrackId === onlyTrack.id) return slot
+            changed = true
+            return { ...slot, assignedTrackId: onlyTrack.id, assignedAt: now }
+          }
+          if (slot.assignedTrackId !== null) {
+            changed = true
+            return { ...slot, assignedTrackId: null, assignedAt: now }
+          }
+          return slot
+        })
+
+        return changed ? final : prev
+      }
+
       const used = new Set<number>(
         next.flatMap((slot) => (slot.text.trim() && slot.assignedTrackId !== null ? [slot.assignedTrackId] : []))
       )
@@ -544,16 +570,6 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
     setInput('')
   }
 
-  const clearSlot = (slotIndex: LabelSlotIndex) => {
-    setLabels((prev) =>
-      prev.map((slot) =>
-        slot.slot === slotIndex
-          ? { ...slot, text: '', assignedTrackId: null, updatedAt: Date.now(), assignedAt: Date.now() }
-          : slot
-      )
-    )
-  }
-
   return (
     <div className="trackedTextOverlay">
       <div ref={stageRef} className="trackedTextOverlay__stage" aria-hidden="true">
@@ -661,25 +677,6 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
             送信
           </button>
         </form>
-
-        <div className="trackedTextOverlay__slots">
-          {labels
-            .filter((slot) => slot.text.trim().length > 0)
-            .map((slot) => (
-              <div key={slot.slot} className="trackedTextOverlay__slotChip">
-                <span className="trackedTextOverlay__slotChipText">
-                  {slot.slot + 1}: {slot.text}
-                </span>
-                <button
-                  type="button"
-                  className="trackedTextOverlay__slotClear"
-                  onClick={() => clearSlot(slot.slot)}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-        </div>
       </div>
     </div>
   )
