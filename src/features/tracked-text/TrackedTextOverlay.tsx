@@ -128,6 +128,36 @@ const createFloatingText = (text: string, hue: number): FloatingText => {
   }
 }
 
+let echoTimers: number[] = []
+
+const speakText = (text: string) => {
+  if (typeof window === 'undefined') return
+  const synth = window.speechSynthesis
+  if (!synth) return
+  echoTimers.forEach((id) => window.clearTimeout(id))
+  echoTimers = []
+  synth.cancel()
+
+  const echoes = [
+    { delay: 0, volume: 1, rate: 1, pitch: 1 },
+    { delay: 140, volume: 0.62, rate: 0.98, pitch: 0.98 },
+    { delay: 260, volume: 0.4, rate: 0.97, pitch: 0.97 },
+    { delay: 380, volume: 0.26, rate: 0.96, pitch: 0.96 },
+  ]
+
+  for (const echo of echoes) {
+    const id = window.setTimeout(() => {
+      const utterance = new SpeechSynthesisUtterance(text)
+      utterance.lang = 'ja-JP'
+      utterance.rate = echo.rate
+      utterance.pitch = echo.pitch
+      utterance.volume = echo.volume
+      synth.speak(utterance)
+    }, echo.delay)
+    echoTimers.push(id)
+  }
+}
+
 export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: TrackedTextOverlayProps) {
   const resolvedShowMarkers = showMarkers ?? showStatusControls
   const [sseUrl, setSseUrl] = useState(() => loadLocalStorageString('tracking.sseUrl', 'http://127.0.0.1:8765/stream'))
@@ -670,6 +700,7 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
     )
 
     setInput('')
+    speakText(normalized)
   }
 
   return (
@@ -808,17 +839,29 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
         )}
 
         <form className="trackedTextOverlay__composer" onSubmit={handleSubmit}>
-          <input
-            className="trackedTextOverlay__input"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="文字を入力…（2つまで追従）"
-            autoComplete="off"
-            enterKeyHint="send"
-            aria-label="追従文字"
-          />
+          <div
+            className="trackedTextOverlay__inputShell"
+            data-empty={input.length === 0 ? 'true' : 'false'}
+          >
+            <input
+              className="trackedTextOverlay__input"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="文字を入力…（2つまで追従）"
+              autoComplete="off"
+              enterKeyHint="send"
+              aria-label="追従文字"
+            />
+            <span className="trackedTextOverlay__inputGhost" aria-hidden="true">
+              <GlassText
+                className="trackedTextOverlay__inputGhostText"
+                text={input.length === 0 ? '文字を入力…（2つまで追従）' : input}
+                quality={input.length === 0 ? 'low' : 'high'}
+              />
+            </span>
+          </div>
           <button type="submit" className="glass-button trackedTextOverlay__submit" disabled={!input.trim()}>
-            送信
+            ↑
           </button>
         </form>
       </div>

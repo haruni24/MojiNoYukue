@@ -242,14 +242,20 @@
 .trackedTextOverlay__composer {
   pointer-events: auto;
   width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.65rem 0.75rem;
+  gap: 0.75rem;
+  padding: 0.8rem 1rem;
   border-radius: 999px;
-  background: rgba(20, 20, 24, 0.42);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.25);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
+    rgba(12, 12, 16, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 16px 36px rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
 }
@@ -257,21 +263,94 @@
 .trackedTextOverlay__composer:focus-within {
   border-color: rgba(255, 255, 255, 0.35);
   box-shadow:
-    0 12px 34px rgba(0, 0, 0, 0.25),
-    0 0 0 3px rgba(255, 255, 255, 0.12);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 16px 36px rgba(0, 0, 0, 0.28),
+    0 0 0 4px rgba(150, 200, 255, 0.08);
+}
+
+.trackedTextOverlay__inputShell {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
 }
 
 .trackedTextOverlay__input {
-  flex: 1;
+  width: 100%;
+  height: 2.4rem;
   min-width: 0;
   background: transparent;
   border: none;
-  padding: 0 0.5rem;
+  padding: 0 0.6rem;
   font-size: 1rem;
+  letter-spacing: 0.18em;
+  font-weight: 620;
+  color: transparent;
+  caret-color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 0 0 rgba(255, 255, 255, 0);
+  text-align: left;
 }
 
 .trackedTextOverlay__input::placeholder {
-  color: rgba(255, 255, 255, 0.6);
+  color: transparent;
+}
+
+.trackedTextOverlay__inputGhost {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 0.6rem;
+  pointer-events: none;
+  opacity: 0.95;
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+.trackedTextOverlay__inputShell[data-empty='true'] .trackedTextOverlay__inputGhost {
+  opacity: 0.58;
+  filter: blur(0.1px);
+}
+
+.trackedTextOverlay__composer:focus-within .trackedTextOverlay__inputGhost {
+  opacity: 1;
+  filter: drop-shadow(0 0 10px rgba(160, 210, 255, 0.22));
+}
+
+.trackedTextOverlay__inputGhostText {
+  font-size: 1rem;
+  font-weight: 620;
+  letter-spacing: 0.2em;
+}
+
+.trackedTextOverlay__submit {
+  border-radius: 999px;
+  width: 2.4rem;
+  height: 2.4rem;
+  padding: 0;
+  font-size: 1.1rem;
+  font-weight: 750;
+  letter-spacing: 0;
+  color: rgba(255, 255, 255, 0.92);
+  background:
+    radial-gradient(circle at 40% 30%, rgba(180, 220, 255, 0.18), rgba(255, 255, 255, 0)),
+    rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 8px 20px rgba(0, 0, 0, 0.24);
+  transition: transform 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease;
+}
+
+.trackedTextOverlay__submit:disabled {
+  opacity: 0.55;
+}
+
+.trackedTextOverlay__submit:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 12px 26px rgba(0, 0, 0, 0.28);
 }
 
 .trackedTextOverlay__error {
