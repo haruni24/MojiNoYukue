@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, type CSSProperties } from 'react';
 import './App.css';
 import { GlassText } from './glass/GlassText';
 import { VISUAL_CONFIG } from './visualConfig';
 import { getPerfSettings } from './performance';
+import { useRelayConnection } from './useRelayConnection';
 
 function seededUnit(seed: number) {
   let t = seed >>> 0;
@@ -404,38 +405,45 @@ function App() {
 
   }, [csvData, perf.maxMovingTexts]); // csvDataがセットされたらこのeffectを実行
 
-  useEffect(() => {
-    const handlePayload = (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
-      const data = payload as {
-        type?: string;
-        id?: string;
-        text?: string;
-        yN?: number;
-        hue?: number;
-        at?: number;
-      };
-      if (data.type !== 'takeuchi-text') return;
-      if (typeof data.text !== 'string' || !data.text.trim()) return;
-      const id = typeof data.id === 'string' ? data.id : `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
-      const yN = typeof data.yN === 'number' && Number.isFinite(data.yN) ? data.yN : 0.5;
-      const hue = typeof data.hue === 'number' && Number.isFinite(data.hue) ? data.hue : 210;
-      const createdAt = typeof data.at === 'number' && Number.isFinite(data.at) ? data.at : Date.now();
-      const message: SpecialMessage = {
-        id,
-        text: data.text.trim(),
-        yN: Math.min(0.95, Math.max(0.05, yN)),
-        hue,
-        createdAt,
-      };
-
-      setSpecials((prev) => [...prev, message].slice(-perf.maxSpecials));
-      const timer = window.setTimeout(() => {
-        setSpecials((prev) => prev.filter((item) => item.id !== id));
-      }, 4500);
-      cleanupTimersRef.current.push(timer);
+  const handlePayload = useCallback((payload: unknown) => {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as {
+      type?: string;
+      id?: string;
+      text?: string;
+      yN?: number;
+      hue?: number;
+      at?: number;
+    };
+    // takeuchi-text と takeuchi-ai-text の両方を受け付ける
+    if (data.type !== 'takeuchi-text' && data.type !== 'takeuchi-ai-text') return;
+    if (typeof data.text !== 'string' || !data.text.trim()) return;
+    const id = typeof data.id === 'string' ? data.id : `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    const yN = typeof data.yN === 'number' && Number.isFinite(data.yN) ? data.yN : 0.5;
+    const hue = typeof data.hue === 'number' && Number.isFinite(data.hue) ? data.hue : 210;
+    const createdAt = typeof data.at === 'number' && Number.isFinite(data.at) ? data.at : Date.now();
+    const message: SpecialMessage = {
+      id,
+      text: data.text.trim(),
+      yN: Math.min(0.95, Math.max(0.05, yN)),
+      hue,
+      createdAt,
     };
 
+    setSpecials((prev) => [...prev, message].slice(-perf.maxSpecials));
+    const timer = window.setTimeout(() => {
+      setSpecials((prev) => prev.filter((item) => item.id !== id));
+    }, 4500);
+    cleanupTimersRef.current.push(timer);
+  }, [perf.maxSpecials]);
+
+  // WebSocket relay 経由で受信 (別マシンからのメッセージ)
+  useRelayConnection({
+    onMessage: handlePayload,
+  });
+
+  // BroadcastChannel + localStorage (同一プロセス/マシンフォールバック)
+  useEffect(() => {
     let channel: BroadcastChannel | null = null;
     if (typeof BroadcastChannel !== 'undefined') {
       channel = new BroadcastChannel('mojinoyukue-takeuchi');
@@ -460,7 +468,7 @@ function App() {
       cleanupTimersRef.current.forEach((timer) => window.clearTimeout(timer));
       cleanupTimersRef.current = [];
     };
-  }, [perf.maxSpecials]);
+  }, [handlePayload]);
 
   const appStyle = useMemo(() => {
     return {
