@@ -3,10 +3,12 @@ import './TrackedTextOverlay.css'
 import { useTrackingSse, type TrackingTrack } from '../tracking/useTrackingSse'
 import { GlassText } from '../../components/GlassText'
 import { MAX_FLOATING_TEXTS, PERSON_SCALE } from '../../config/scene'
+import type { RelayMessage, TakeuchiTextMessage } from '../../lib/relay/types'
 
 export type TrackedTextOverlayProps = {
   showStatusControls?: boolean
   showMarkers?: boolean
+  sendRelayMessage?: (msg: RelayMessage) => void
 }
 
 type LabelSlotIndex = 0 | 1
@@ -158,7 +160,7 @@ const speakText = (text: string) => {
   }
 }
 
-export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: TrackedTextOverlayProps) {
+export function TrackedTextOverlay({ showStatusControls = true, showMarkers, sendRelayMessage }: TrackedTextOverlayProps) {
   const resolvedShowMarkers = showMarkers ?? showStatusControls
   const [sseUrl, setSseUrl] = useState(() => loadLocalStorageString('tracking.sseUrl', 'http://127.0.0.1:8765/stream'))
   const [cameraIndex, setCameraIndex] = useState(() => loadLocalStorageNumber('tracking.cameraIndex', 0))
@@ -170,6 +172,7 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
   const tracking = useTrackingSse(sseUrl, { enabled: Boolean(sseUrl) })
 
   const takeuchiChannelRef = useRef<BroadcastChannel | null>(null)
+  const sendRelayRef = useRef(sendRelayMessage)
   const stageRef = useRef<HTMLDivElement>(null)
   const labelElsRef = useRef<Record<number, HTMLDivElement | null>>({ 0: null, 1: null })
   const markerElsRef = useRef<Map<number, HTMLDivElement>>(new Map())
@@ -209,6 +212,10 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
   useEffect(() => {
     floatingTextsRef.current = floatingTexts
   }, [floatingTexts])
+
+  useEffect(() => {
+    sendRelayRef.current = sendRelayMessage
+  }, [sendRelayMessage])
 
   useEffect(() => {
     mirrorXRef.current = mirrorX
@@ -646,7 +653,7 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
         const text = assigned?.text ?? fallback?.text
         const hue = assigned?.hue ?? fallback?.hue
         if (text && typeof hue === 'number') {
-          const payload = {
+          const payload: TakeuchiTextMessage = {
             type: 'takeuchi-text',
             id: `${now}-${Math.round(Math.random() * 1e6)}`,
             text,
@@ -654,6 +661,13 @@ export function TrackedTextOverlay({ showStatusControls = true, showMarkers }: T
             yN: info.yN,
             at: now,
           }
+          // WebSocket relay (別マシンのtakeuchi向け)
+          try {
+            sendRelayRef.current?.(payload)
+          } catch {
+            // ignore
+          }
+          // BroadcastChannel (同一プロセス内フォールバック)
           try {
             takeuchiChannelRef.current?.postMessage(payload)
           } catch {
