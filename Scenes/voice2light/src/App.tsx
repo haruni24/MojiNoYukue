@@ -5,6 +5,7 @@ import { OpenAIEmotionAnalyzer } from './core/emotion'
 import { SceneRenderer } from './core/renderer'
 import { SampleVoiceFeed } from './core/sampleFeed'
 import { VisionEngine } from './core/vision'
+import { SceneBusClient, type EventEnvelope } from './net/sceneBus'
 import type { VisionSnapshot } from './types/scene'
 
 type RuntimeStatus = 'idle' | 'booting' | 'running' | 'error-camera' | 'error-model'
@@ -17,6 +18,15 @@ const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY ?? ''
 const UI_TOGGLE_KEY = import.meta.env.VITE_UI_TOGGLE_KEY ?? 'KeyU'
 const ENABLE_HANDS = false
 const ENABLE_SILHOUETTE = String(import.meta.env.VITE_ENABLE_SILHOUETTE ?? 'false').toLowerCase() === 'true'
+const BUS_ENABLED = String(import.meta.env.VITE_SCENE_BUS_ENABLED ?? 'false').toLowerCase() === 'true'
+const BUS_URL = import.meta.env.VITE_SCENE_BUS_URL ?? 'ws://127.0.0.1:8787/ws'
+const BUS_TOKEN = import.meta.env.VITE_SCENE_BUS_TOKEN ?? ''
+const BUS_NODE_ID = import.meta.env.VITE_SCENE_NODE_ID ?? `voice2light-${location.hostname}`
+const BUS_ROOM = import.meta.env.VITE_SCENE_ROOM ?? 'default'
+const BUS_GROUPS = String(import.meta.env.VITE_SCENE_GROUPS ?? 'main')
+  .split(',')
+  .map((v: string) => v.trim())
+  .filter((v: string) => v.length > 0)
 
 function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -29,29 +39,34 @@ function App() {
   const [handCount, setHandCount] = useState(0)
   const [particleCount, setParticleCount] = useState(0)
   const [fps, setFps] = useState(0)
+  const statusRef = useRef<RuntimeStatus>('idle')
 
   const resourcesRef = useRef<{
     animationId: number | null
     vision: VisionEngine | null
     director: SceneDirector | null
     feed: SampleVoiceFeed | null
+    bus: SceneBusClient | null
     bootedAt: number
     lastFrameAt: number
     smoothedFps: number
     lastHudUpdate: number
     latestHandCount: number
     latestParticleCount: number
+    lastMetricsSentAt: number
   }>({
     animationId: null,
     vision: null,
     director: null,
     feed: null,
+    bus: null,
     bootedAt: 0,
     lastFrameAt: 0,
     smoothedFps: 0,
     lastHudUpdate: 0,
     latestHandCount: 0,
     latestParticleCount: 0,
+    lastMetricsSentAt: 0,
   })
 
   const hasApiKey = useMemo(() => OPENAI_API_KEY.length > 0, [])
@@ -66,16 +81,19 @@ function App() {
     resources.director?.stop()
     resources.vision?.dispose()
     resources.feed?.stop()
+    resources.bus?.stop()
 
     resources.director = null
     resources.vision = null
     resources.feed = null
+    resources.bus = null
     resources.bootedAt = 0
     resources.lastFrameAt = 0
     resources.smoothedFps = 0
     resources.lastHudUpdate = 0
     resources.latestHandCount = 0
     resources.latestParticleCount = 0
+    resources.lastMetricsSentAt = 0
 
     if (videoRef.current?.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream
@@ -83,6 +101,10 @@ function App() {
       videoRef.current.srcObject = null
     }
   }
+
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -141,6 +163,23 @@ function App() {
     const renderer = new SceneRenderer(canvas, {
       showHands: ENABLE_HANDS,
     })
+    const bus = new SceneBusClient({
+      enabled: BUS_ENABLED,
+      wsUrl: BUS_URL,
+      authToken: BUS_TOKEN,
+      nodeId: BUS_NODE_ID,
+      sourceApp: 'voice2light',
+      room: BUS_ROOM,
+      groups: BUS_GROUPS,
+    })
+    bus.onError((errorMessage) => {
+      console.warn('[scene-bus][voice2light]', errorMessage)
+    })
+    bus.onEvent((envelope) => {
+      handleRemoteEnvelope(envelope)
+    })
+    bus.start()
+
     const emotionAnalyzer = new OpenAIEmotionAnalyzer({
       apiKey: OPENAI_API_KEY,
       model: OPENAI_MODEL,
@@ -152,6 +191,21 @@ function App() {
       emotionAnalyzer,
       enableHandInteraction: ENABLE_HANDS,
       maxParticles: 780,
+      onTextMaterialized: (event) => {
+        bus.publish('transcript.text', {
+          text: event.text,
+          speakerId: event.speakerId,
+          createdAt: event.createdAt,
+        })
+        bus.publish('emotion.profile', {
+          text: event.text,
+          speakerId: event.speakerId,
+          polarity: event.emotion.polarity,
+          intensity: event.emotion.intensity,
+          confidence: event.emotion.confidence,
+          createdAt: event.createdAt,
+        })
+      },
     })
     const feed = new SampleVoiceFeed()
 
@@ -211,6 +265,17 @@ function App() {
         active.lastHudUpdate = timestamp
       }
 
+      if (active.bus && timestamp - active.lastMetricsSentAt > 200) {
+        active.bus.publish('metrics.runtime', {
+          status: 'running',
+          fps: Number(active.smoothedFps.toFixed(2)),
+          particles: active.latestParticleCount,
+          hands: ENABLE_HANDS ? active.latestHandCount : 0,
+          runtimeMs: active.bootedAt > 0 ? performance.now() - active.bootedAt : 0,
+        })
+        active.lastMetricsSentAt = timestamp
+      }
+
       active.animationId = requestAnimationFrame(loop)
     }
 
@@ -219,19 +284,39 @@ function App() {
       vision,
       director,
       feed,
+      bus,
       bootedAt: performance.now(),
       lastFrameAt: 0,
       smoothedFps: 0,
       lastHudUpdate: 0,
       latestHandCount: 0,
       latestParticleCount: 0,
+      lastMetricsSentAt: 0,
     }
+
+    bus.publish(
+      'scene.cue',
+      {
+        cue: 'voice2light-started',
+      },
+      { priority: 'reliable' },
+    )
 
     setStatus('running')
     setMessage(hasApiKey ? 'VOICE2LIGHT 稼働中' : 'VOICE2LIGHT 稼働中（感情判定はフォールバック）')
   }
 
   const stop = (): void => {
+    const activeBus = resourcesRef.current.bus
+    if (activeBus?.isConnected()) {
+      activeBus.publish(
+        'scene.cue',
+        {
+          cue: 'voice2light-stopped',
+        },
+        { priority: 'reliable' },
+      )
+    }
     teardown()
     setStatus('idle')
     setMessage('停止しました')
@@ -239,6 +324,36 @@ function App() {
     setFps(0)
     setHandCount(0)
     setParticleCount(0)
+  }
+
+  const handleRemoteEnvelope = (envelope: EventEnvelope): void => {
+    if (envelope.kind === 'transcript.text' && envelope.sourceNodeId !== BUS_NODE_ID) {
+      const payload = envelope.payload as { text?: string } | null
+      const text = payload?.text?.trim()
+      if (text) {
+        resourcesRef.current.director?.enqueueText(text)
+      }
+      return
+    }
+
+    if (envelope.kind === 'control.command') {
+      const payload = envelope.payload as { command?: string } | null
+      if (payload?.command === 'start' && statusRef.current === 'idle') {
+        void start()
+      } else if (payload?.command === 'stop' && statusRef.current !== 'idle') {
+        stop()
+      } else if (payload?.command === 'reload') {
+        window.location.reload()
+      }
+      return
+    }
+
+    if (envelope.kind === 'scene.cue') {
+      const payload = envelope.payload as { cue?: string } | null
+      if (payload?.cue) {
+        setMessage(`CUE受信: ${payload.cue}`)
+      }
+    }
   }
 
   const runtimeMinutes = Math.floor(runningTimeMs / 60000)

@@ -14,6 +14,8 @@ type DirectorOptions = {
   renderer: SceneRenderer
   transcriptConfig: TranscriptConfig
   canvas: HTMLCanvasElement
+  onTranscript?: (event: { text: string; speakerId: string | null; createdAt: number }) => void
+  onTranscriptError?: (errorMessage: string) => void
 }
 
 const INITIAL_AUDIO_METRICS: AudioMetrics = {
@@ -27,6 +29,8 @@ export class SceneDirector {
   private readonly renderer: SceneRenderer
   private readonly transcriptConfig: TranscriptConfig
   private readonly canvas: HTMLCanvasElement
+  private readonly onTranscript?: (event: { text: string; speakerId: string | null; createdAt: number }) => void
+  private readonly onTranscriptError?: (errorMessage: string) => void
 
   private participants: ParticipantTrack[] = []
   private particles: GlyphParticle[] = []
@@ -43,6 +47,8 @@ export class SceneDirector {
     this.renderer = options.renderer
     this.transcriptConfig = options.transcriptConfig
     this.canvas = options.canvas
+    this.onTranscript = options.onTranscript
+    this.onTranscriptError = options.onTranscriptError
   }
 
   start(): void {
@@ -162,6 +168,11 @@ export class SceneDirector {
       const primary = this.participants.find((participant) => participant.isPrimary) ?? null
       const event = createTranscriptEvent(text, primary?.id ?? null, Date.now())
       this.lastTranscript = event.text
+      this.onTranscript?.({
+        text: event.text,
+        speakerId: event.speakerId,
+        createdAt: event.createdAt,
+      })
 
       const created = materializeTranscript(
         event,
@@ -178,6 +189,7 @@ export class SceneDirector {
       const message = error instanceof Error ? error.message : 'transcription failed'
       console.error('[VOICEBORN][STT] error:', message)
       this.lastTranscript = `STT ERROR: ${message.slice(0, 100)}`
+      this.onTranscriptError?.(message)
       this.sttDisabledUntil = Date.now() + 10_000
     } finally {
       this.processingTranscript = false

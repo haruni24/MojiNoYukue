@@ -4,6 +4,7 @@ import { AudioEngine } from './core/audio'
 import { SceneDirector } from './core/director'
 import { SceneRenderer } from './core/renderer'
 import { VisionEngine } from './core/vision'
+import { SceneBusClient, type EventEnvelope } from './net/sceneBus'
 
 type RuntimeStatus =
   | 'idle'
@@ -18,6 +19,15 @@ const CAMERA_WIDTH = Number(import.meta.env.VITE_CAMERA_WIDTH ?? 1920)
 const CAMERA_HEIGHT = Number(import.meta.env.VITE_CAMERA_HEIGHT ?? 1080)
 const OPENAI_MODEL = import.meta.env.VITE_OPENAI_STT_MODEL ?? 'gpt-4o-mini-transcribe'
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY ?? ''
+const BUS_ENABLED = String(import.meta.env.VITE_SCENE_BUS_ENABLED ?? 'false').toLowerCase() === 'true'
+const BUS_URL = import.meta.env.VITE_SCENE_BUS_URL ?? 'ws://127.0.0.1:8787/ws'
+const BUS_TOKEN = import.meta.env.VITE_SCENE_BUS_TOKEN ?? ''
+const BUS_NODE_ID = import.meta.env.VITE_SCENE_NODE_ID ?? `voiceborn-${location.hostname}`
+const BUS_ROOM = import.meta.env.VITE_SCENE_ROOM ?? 'default'
+const BUS_GROUPS = String(import.meta.env.VITE_SCENE_GROUPS ?? 'main')
+  .split(',')
+  .map((v: string) => v.trim())
+  .filter((v: string) => v.length > 0)
 
 function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -25,22 +35,31 @@ function App() {
   const [status, setStatus] = useState<RuntimeStatus>('idle')
   const [message, setMessage] = useState('起動待機中')
   const [runningTimeMs, setRunningTimeMs] = useState(0)
+  const statusRef = useRef<RuntimeStatus>('idle')
 
   const resourcesRef = useRef<{
     animationId: number | null
     vision: VisionEngine | null
     audio: AudioEngine | null
     director: SceneDirector | null
+    bus: SceneBusClient | null
     bootedAt: number
+    lastMetricsSentAt: number
   }>({
     animationId: null,
     vision: null,
     audio: null,
     director: null,
+    bus: null,
     bootedAt: 0,
+    lastMetricsSentAt: 0,
   })
 
   const hasApiKey = useMemo(() => OPENAI_API_KEY.length > 0, [])
+
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
 
   useEffect(() => {
     return () => {
@@ -59,10 +78,13 @@ function App() {
     resources.director?.stop()
     resources.vision?.dispose()
     resources.audio?.stop()
+    resources.bus?.stop()
 
     resources.director = null
     resources.vision = null
     resources.audio = null
+    resources.bus = null
+    resources.lastMetricsSentAt = 0
 
     if (videoRef.current?.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream
@@ -120,6 +142,23 @@ function App() {
     }
 
     const renderer = new SceneRenderer(canvas)
+    const bus = new SceneBusClient({
+      enabled: BUS_ENABLED,
+      wsUrl: BUS_URL,
+      authToken: BUS_TOKEN,
+      nodeId: BUS_NODE_ID,
+      sourceApp: 'voiceborn',
+      room: BUS_ROOM,
+      groups: BUS_GROUPS,
+    })
+    bus.onError((errorMessage) => {
+      console.warn('[scene-bus][voiceborn]', errorMessage)
+    })
+    bus.onEvent((envelope) => {
+      handleRemoteEnvelope(envelope)
+    })
+    bus.start()
+
     const director = new SceneDirector({
       renderer,
       canvas,
@@ -127,6 +166,25 @@ function App() {
         apiKey: OPENAI_API_KEY,
         model: OPENAI_MODEL,
         language: 'ja',
+      },
+      onTranscript: (event) => {
+        bus.publish('transcript.text', {
+          text: event.text,
+          speakerId: event.speakerId,
+          createdAt: event.createdAt,
+        })
+      },
+      onTranscriptError: (errorMessage) => {
+        bus.publish(
+          'scene.cue',
+          {
+            cue: 'stt-error',
+            message: errorMessage,
+          },
+          {
+            priority: 'reliable',
+          },
+        )
       },
     })
 
@@ -162,6 +220,16 @@ function App() {
         setRunningTimeMs(performance.now() - bootedAt)
       }
 
+      if (resourcesRef.current.bus && timestamp - resourcesRef.current.lastMetricsSentAt > 200) {
+        resourcesRef.current.bus.publish('metrics.runtime', {
+          status: 'running',
+          fpsTarget: TARGET_FPS,
+          speaking: resourcesRef.current.audio ? 'active' : 'none',
+          runtimeMs: resourcesRef.current.bootedAt > 0 ? performance.now() - resourcesRef.current.bootedAt : 0,
+        })
+        resourcesRef.current.lastMetricsSentAt = timestamp
+      }
+
       resourcesRef.current.animationId = requestAnimationFrame(loop)
     }
 
@@ -170,18 +238,59 @@ function App() {
       vision,
       audio,
       director,
+      bus,
       bootedAt: performance.now(),
+      lastMetricsSentAt: 0,
     }
+
+    bus.publish(
+      'scene.cue',
+      {
+        cue: 'voiceborn-started',
+      },
+      { priority: 'reliable' },
+    )
 
     setStatus('running')
     setMessage(hasApiKey ? '展示モード稼働中' : '展示モード稼働中（STTは無効）')
   }
 
   const stop = (): void => {
+    const activeBus = resourcesRef.current.bus
+    if (activeBus?.isConnected()) {
+      activeBus.publish(
+        'scene.cue',
+        {
+          cue: 'voiceborn-stopped',
+        },
+        { priority: 'reliable' },
+      )
+    }
     teardown()
     setStatus('idle')
     setMessage('停止しました')
     setRunningTimeMs(0)
+  }
+
+  const handleRemoteEnvelope = (envelope: EventEnvelope): void => {
+    if (envelope.kind === 'control.command') {
+      const payload = envelope.payload as { command?: string } | null
+      if (payload?.command === 'start' && statusRef.current === 'idle') {
+        void start()
+      } else if (payload?.command === 'stop' && statusRef.current !== 'idle') {
+        stop()
+      } else if (payload?.command === 'reload') {
+        window.location.reload()
+      }
+      return
+    }
+
+    if (envelope.kind === 'scene.cue') {
+      const payload = envelope.payload as { cue?: string } | null
+      if (payload?.cue) {
+        setMessage(`CUE受信: ${payload.cue}`)
+      }
+    }
   }
 
   const runtimeMinutes = Math.floor(runningTimeMs / 60000)

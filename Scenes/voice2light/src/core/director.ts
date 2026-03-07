@@ -9,6 +9,12 @@ type DirectorOptions = {
   canvas: HTMLCanvasElement
   enableHandInteraction?: boolean
   maxParticles?: number
+  onTextMaterialized?: (event: {
+    text: string
+    speakerId: string | null
+    createdAt: number
+    emotion: EmotionProfile
+  }) => void
 }
 
 export class SceneDirector {
@@ -17,6 +23,12 @@ export class SceneDirector {
   private readonly canvas: HTMLCanvasElement
   private readonly enableHandInteraction: boolean
   private readonly maxParticles: number
+  private readonly onTextMaterialized?: (event: {
+    text: string
+    speakerId: string | null
+    createdAt: number
+    emotion: EmotionProfile
+  }) => void
 
   private participants: ParticipantTrack[] = []
   private hands: HandTrack[] = []
@@ -36,6 +48,7 @@ export class SceneDirector {
     this.canvas = options.canvas
     this.enableHandInteraction = options.enableHandInteraction ?? false
     this.maxParticles = options.maxParticles ?? 900
+    this.onTextMaterialized = options.onTextMaterialized
   }
 
   start(): void {
@@ -148,6 +161,12 @@ export class SceneDirector {
 
       this.lastText = event.text
       this.lastEmotion = emotion
+      this.onTextMaterialized?.({
+        text: event.text,
+        speakerId: event.speakerId,
+        createdAt: event.createdAt,
+        emotion: event.emotion,
+      })
 
       const created = materializeText(
         event,
