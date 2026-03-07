@@ -5,7 +5,7 @@ import {
   type ImageSegmenterResult,
   type PoseLandmarkerResult,
 } from '@mediapipe/tasks-vision'
-import type { Landmark, ParticipantTrack, VisionSnapshot } from '../types/scene'
+import type { Landmark, ParticipantTrack, SegmentationFrame, VisionSnapshot } from '../types/scene'
 
 type PoseTrack = {
   id: string
@@ -85,13 +85,15 @@ export class VisionEngine {
       }
     })
 
-    const silhouetteStrength = this.computeSilhouetteStrength(segmentationResult)
+    const segmentation = this.createSegmentationFrame(segmentationResult)
+    const silhouetteStrength = this.computeSilhouetteStrength(segmentation)
 
     this.lastTimestamp = timestamp
 
     return {
       participants,
       silhouetteStrength,
+      segmentation,
       timestamp,
     }
   }
@@ -205,23 +207,41 @@ export class VisionEngine {
     return sum / landmarks.length
   }
 
-  private computeSilhouetteStrength(result: ImageSegmenterResult): number {
+  private createSegmentationFrame(result: ImageSegmenterResult): SegmentationFrame | null {
     const mask = result.confidenceMasks?.[0]
     if (!mask) {
-      return 0
+      return null
     }
 
+    const width = mask.width
+    const height = mask.height
     const data = mask.getAsFloat32Array()
     if (data.length === 0) {
+      return null
+    }
+
+    const alpha = new Uint8ClampedArray(width * height)
+    for (let i = 0; i < data.length; i += 1) {
+      const normalized = (data[i] - 0.08) / 0.9
+      const value = Math.max(0, Math.min(1, normalized))
+      alpha[i] = Math.round(value * 255)
+    }
+
+    return { alpha, width, height }
+  }
+
+  private computeSilhouetteStrength(segmentation: SegmentationFrame | null): number {
+    if (!segmentation) {
       return 0
     }
+    const data = segmentation.alpha
 
     const step = Math.max(1, Math.floor(data.length / 2000))
     let sum = 0
     let count = 0
 
     for (let i = 0; i < data.length; i += step) {
-      sum += data[i]
+      sum += data[i] / 255
       count += 1
     }
 

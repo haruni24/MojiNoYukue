@@ -24,7 +24,14 @@ export type ParticipantTrack = {
 export type VisionSnapshot = {
   participants: ParticipantTrack[]
   silhouetteStrength: number
+  segmentation: SegmentationFrame | null
   timestamp: number
+}
+
+export type SegmentationFrame = {
+  alpha: Uint8ClampedArray
+  width: number
+  height: number
 }
 
 export type AudioMetrics = {
@@ -70,5 +77,7 @@ export type SceneState = {
   particles: GlyphParticle[]
   lastTranscript: string
   silhouetteStrength: number
+  segmentation: SegmentationFrame | null
+  videoFrame: HTMLVideoElement | null
   audioMetrics: AudioMetrics
 }

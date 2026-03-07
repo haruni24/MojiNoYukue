@@ -153,7 +153,7 @@ function App() {
 
       if (timestamp - lastFrame >= frameInterval) {
         const snapshot = resourcesRef.current.vision.detect(video, timestamp)
-        resourcesRef.current.director.onVisionFrame(snapshot)
+        resourcesRef.current.director.onVisionFrame(snapshot, video)
         lastFrame = timestamp
       }
 

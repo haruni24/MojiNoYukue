@@ -5,15 +5,18 @@ import { OpenAIEmotionAnalyzer } from './core/emotion'
 import { SceneRenderer } from './core/renderer'
 import { SampleVoiceFeed } from './core/sampleFeed'
 import { VisionEngine } from './core/vision'
+import type { VisionSnapshot } from './types/scene'
 
 type RuntimeStatus = 'idle' | 'booting' | 'running' | 'error-camera' | 'error-model'
 
-const TARGET_FPS = Number(import.meta.env.VITE_TARGET_FPS ?? 30)
-const CAMERA_WIDTH = Number(import.meta.env.VITE_CAMERA_WIDTH ?? 1280)
-const CAMERA_HEIGHT = Number(import.meta.env.VITE_CAMERA_HEIGHT ?? 720)
+const TARGET_FPS = Number(import.meta.env.VITE_TARGET_FPS ?? 24)
+const CAMERA_WIDTH = Number(import.meta.env.VITE_CAMERA_WIDTH ?? 960)
+const CAMERA_HEIGHT = Number(import.meta.env.VITE_CAMERA_HEIGHT ?? 540)
 const OPENAI_MODEL = import.meta.env.VITE_OPENAI_EMOTION_MODEL ?? 'gpt-4.1-mini'
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY ?? ''
 const UI_TOGGLE_KEY = import.meta.env.VITE_UI_TOGGLE_KEY ?? 'KeyU'
+const ENABLE_HANDS = false
+const ENABLE_SILHOUETTE = String(import.meta.env.VITE_ENABLE_SILHOUETTE ?? 'false').toLowerCase() === 'true'
 
 function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -125,14 +128,19 @@ function App() {
 
     let vision: VisionEngine
     try {
-      vision = await VisionEngine.create()
+      vision = await VisionEngine.create({
+        enableHands: ENABLE_HANDS,
+        enableSilhouette: ENABLE_SILHOUETTE,
+      })
     } catch {
       setStatus('error-model')
       setMessage('MediaPipeモデルの読み込みに失敗しました')
       return
     }
 
-    const renderer = new SceneRenderer(canvas)
+    const renderer = new SceneRenderer(canvas, {
+      showHands: ENABLE_HANDS,
+    })
     const emotionAnalyzer = new OpenAIEmotionAnalyzer({
       apiKey: OPENAI_API_KEY,
       model: OPENAI_MODEL,
@@ -142,6 +150,8 @@ function App() {
       renderer,
       canvas,
       emotionAnalyzer,
+      enableHandInteraction: ENABLE_HANDS,
+      maxParticles: 780,
     })
     const feed = new SampleVoiceFeed()
 
@@ -151,7 +161,15 @@ function App() {
     director.start()
 
     const frameInterval = 1000 / TARGET_FPS
+    const visionInterval = Math.max(frameInterval, 1000 / 15)
     let lastRenderAt = 0
+    let lastVisionAt = 0
+    let cachedSnapshot: VisionSnapshot = {
+      participants: [],
+      hands: [],
+      silhouetteStrength: 0,
+      timestamp: performance.now(),
+    }
 
     const loop = (timestamp: number): void => {
       const active = resourcesRef.current
@@ -160,9 +178,20 @@ function App() {
       }
 
       if (timestamp - lastRenderAt >= frameInterval) {
-        const snapshot = active.vision.detect(video, timestamp)
-        active.director.onVisionFrame(snapshot)
-        active.latestHandCount = snapshot.hands.length
+        if (timestamp - lastVisionAt >= visionInterval) {
+          cachedSnapshot = active.vision.detect(video, timestamp)
+          lastVisionAt = timestamp
+        }
+
+        const frameSnapshot: VisionSnapshot = {
+          participants: cachedSnapshot.participants,
+          hands: cachedSnapshot.hands,
+          silhouetteStrength: cachedSnapshot.silhouetteStrength,
+          timestamp,
+        }
+
+        active.director.onVisionFrame(frameSnapshot)
+        active.latestHandCount = frameSnapshot.hands.length
         active.latestParticleCount = active.director.getParticleCount()
         lastRenderAt = timestamp
       }
@@ -216,8 +245,8 @@ function App() {
   const runtimeSeconds = Math.floor((runningTimeMs % 60000) / 1000)
   const showPanel = panelVisible || status === 'booting' || status === 'error-camera' || status === 'error-model'
   const runtimeLabel = `${runtimeMinutes.toString().padStart(2, '0')}:${runtimeSeconds.toString().padStart(2, '0')}`
-  const handMeter = Math.min(1, handCount / 2)
-  const particleMeter = Math.min(1, particleCount / 600)
+  const handMeter = ENABLE_HANDS ? Math.min(1, handCount / 2) : 0
+  const particleMeter = Math.min(1, particleCount / 450)
   const fpsMeter = Math.min(1, fps / Math.max(1, TARGET_FPS))
 
   return (
@@ -248,7 +277,7 @@ function App() {
             </div>
             <div className="metric-row">
               <span>Hands</span>
-              <strong>{handCount}</strong>
+              <strong>{ENABLE_HANDS ? handCount : 'OFF'}</strong>
             </div>
             <div className="metric-row">
               <span>Particles</span>

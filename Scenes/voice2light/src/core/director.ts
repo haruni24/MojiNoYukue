@@ -7,12 +7,16 @@ type DirectorOptions = {
   renderer: SceneRenderer
   emotionAnalyzer: EmotionAnalyzer
   canvas: HTMLCanvasElement
+  enableHandInteraction?: boolean
+  maxParticles?: number
 }
 
 export class SceneDirector {
   private readonly renderer: SceneRenderer
   private readonly emotionAnalyzer: EmotionAnalyzer
   private readonly canvas: HTMLCanvasElement
+  private readonly enableHandInteraction: boolean
+  private readonly maxParticles: number
 
   private participants: ParticipantTrack[] = []
   private hands: HandTrack[] = []
@@ -30,6 +34,8 @@ export class SceneDirector {
     this.renderer = options.renderer
     this.emotionAnalyzer = options.emotionAnalyzer
     this.canvas = options.canvas
+    this.enableHandInteraction = options.enableHandInteraction ?? false
+    this.maxParticles = options.maxParticles ?? 900
   }
 
   start(): void {
@@ -57,7 +63,7 @@ export class SceneDirector {
     }
 
     this.participants = this.applyPrimarySpeakerSelection(snapshot.participants)
-    this.hands = snapshot.hands
+    this.hands = this.enableHandInteraction ? snapshot.hands : []
 
     const deltaMs = this.lastFrameTimestamp > 0 ? snapshot.timestamp - this.lastFrameTimestamp : 16
     this.lastFrameTimestamp = snapshot.timestamp
@@ -68,6 +74,7 @@ export class SceneDirector {
       width: this.canvas.clientWidth || this.canvas.width,
       height: this.canvas.clientHeight || this.canvas.height,
       handGrabMap: this.handGrabMap,
+      enableHandInteraction: this.enableHandInteraction,
     })
 
     const width = this.canvas.clientWidth || this.canvas.width
@@ -149,8 +156,8 @@ export class SceneDirector {
         this.canvas.clientHeight || this.canvas.height,
       )
       this.particles.push(...created)
-      if (this.particles.length > 1800) {
-        this.particles = this.particles.slice(this.particles.length - 1800)
+      if (this.particles.length > this.maxParticles) {
+        this.particles = this.particles.slice(this.particles.length - this.maxParticles)
       }
     } finally {
       this.processingText = false

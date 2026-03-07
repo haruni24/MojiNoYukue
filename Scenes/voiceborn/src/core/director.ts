@@ -34,6 +34,7 @@ export class SceneDirector {
   private audioMetrics: AudioMetrics = INITIAL_AUDIO_METRICS
   private lastFrameTimestamp = 0
   private running = false
+  private sttDisabledUntil = 0
 
   private transcriptQueue: SpeechChunk[] = []
   private processingTranscript = false
@@ -52,7 +53,7 @@ export class SceneDirector {
     this.running = false
   }
 
-  onVisionFrame(snapshot: VisionSnapshot): void {
+  onVisionFrame(snapshot: VisionSnapshot, videoFrame: HTMLVideoElement | null): void {
     if (!this.running) {
       return
     }
@@ -69,6 +70,8 @@ export class SceneDirector {
       particles: this.particles,
       lastTranscript: this.lastTranscript,
       silhouetteStrength: snapshot.silhouetteStrength,
+      segmentation: snapshot.segmentation,
+      videoFrame,
       audioMetrics: this.audioMetrics,
     }
 
@@ -106,6 +109,9 @@ export class SceneDirector {
   }
 
   enqueueSpeech(chunk: SpeechChunk): void {
+    if (Date.now() < this.sttDisabledUntil) {
+      return
+    }
     this.transcriptQueue.push(chunk)
     void this.processTranscripts()
   }
@@ -151,6 +157,7 @@ export class SceneDirector {
       if (!text) {
         return
       }
+      console.info('[VOICEBORN][STT] transcript:', text)
 
       const primary = this.participants.find((participant) => participant.isPrimary) ?? null
       const event = createTranscriptEvent(text, primary?.id ?? null, Date.now())
@@ -167,8 +174,11 @@ export class SceneDirector {
       if (this.particles.length > 1800) {
         this.particles = this.particles.slice(this.particles.length - 1800)
       }
-    } catch {
-      this.lastTranscript = 'TRANSCRIPTION UNAVAILABLE'
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'transcription failed'
+      console.error('[VOICEBORN][STT] error:', message)
+      this.lastTranscript = `STT ERROR: ${message.slice(0, 100)}`
+      this.sttDisabledUntil = Date.now() + 10_000
     } finally {
       this.processingTranscript = false
       if (this.transcriptQueue.length > 0) {

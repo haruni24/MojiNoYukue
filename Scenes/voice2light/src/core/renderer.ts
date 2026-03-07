@@ -1,25 +1,11 @@
-import type { GlyphParticle, HandTrack, ParticipantTrack, SceneState } from '../types/scene'
-
-const POSE_CONNECTIONS: Array<[number, number]> = [
-  [11, 12],
-  [11, 13],
-  [13, 15],
-  [12, 14],
-  [14, 16],
-  [11, 23],
-  [12, 24],
-  [23, 24],
-  [23, 25],
-  [25, 27],
-  [24, 26],
-  [26, 28],
-]
+import type { GlyphParticle, HandTrack, SceneState } from '../types/scene'
 
 export class SceneRenderer {
   private readonly ctx: CanvasRenderingContext2D
   private readonly canvas: HTMLCanvasElement
+  private readonly showHands: boolean
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, options?: { showHands?: boolean }) {
     const context = canvas.getContext('2d')
     if (!context) {
       throw new Error('2D canvas context not available')
@@ -27,6 +13,7 @@ export class SceneRenderer {
 
     this.canvas = canvas
     this.ctx = context
+    this.showHands = options?.showHands ?? false
   }
 
   resize(width: number, height: number): void {
@@ -41,9 +28,10 @@ export class SceneRenderer {
     const ctx = this.ctx
 
     this.drawBackground(width, height, state.silhouetteStrength, timestamp)
-    this.drawParticipants(state.participants, width, height)
-    this.drawHands(state.hands, width, height)
-    this.drawParticles(state.particles)
+    if (this.showHands) {
+      this.drawHands(state.hands, width, height)
+    }
+    this.drawParticles(state.particles, width, height)
     this.drawSubtitle(state, width, height)
 
     ctx.globalCompositeOperation = 'source-over'
@@ -51,60 +39,27 @@ export class SceneRenderer {
 
   private drawBackground(width: number, height: number, silhouetteStrength: number, timestamp: number): void {
     const ctx = this.ctx
-    const t = timestamp * 0.00011
+    const t = timestamp * 0.00009
 
     const gradient = ctx.createLinearGradient(0, 0, width, height)
-    gradient.addColorStop(0, '#060713')
-    gradient.addColorStop(0.48, '#090717')
-    gradient.addColorStop(1, '#04040d')
+    gradient.addColorStop(0, '#000000')
+    gradient.addColorStop(0.5, '#030303')
+    gradient.addColorStop(1, '#000000')
     ctx.fillStyle = gradient
     ctx.fillRect(0, 0, width, height)
 
-    const fog = 0.1 + silhouetteStrength * 0.38
-    for (let i = 0; i < 5; i += 1) {
-      const radius = 220 + i * 150 + (Math.sin(t * 1.8 + i) + 1) * 65
-      const x = width * (0.12 + i * 0.2) + Math.sin(t * 1.3 + i * 1.8) * 80
-      const y = height * (0.24 + (i % 3) * 0.2) + Math.cos(t * 1.5 + i * 1.2) * 52
+    const fog = 0.06 + silhouetteStrength * 0.2
+    for (let i = 0; i < 4; i += 1) {
+      const radius = 240 + i * 190 + (Math.sin(t * 1.4 + i) + 1) * 48
+      const x = width * (0.16 + i * 0.21) + Math.sin(t * 1.2 + i * 1.7) * 54
+      const y = height * (0.22 + (i % 2) * 0.33) + Math.cos(t * 1.1 + i * 1.4) * 42
       const glow = ctx.createRadialGradient(x, y, 0, x, y, radius)
-      glow.addColorStop(0, `rgba(199, 172, 255, ${fog})`)
-      glow.addColorStop(0.45, `rgba(146, 103, 255, ${fog * 0.35})`)
-      glow.addColorStop(1, 'rgba(2, 5, 12, 0)')
+      glow.addColorStop(0, `rgba(255, 255, 255, ${fog})`)
+      glow.addColorStop(0.5, `rgba(220, 220, 220, ${fog * 0.22})`)
+      glow.addColorStop(1, 'rgba(0, 0, 0, 0)')
       ctx.fillStyle = glow
       ctx.fillRect(0, 0, width, height)
     }
-  }
-
-  private drawParticipants(participants: ParticipantTrack[], width: number, height: number): void {
-    const ctx = this.ctx
-
-    participants.forEach((participant) => {
-      const px = participant.centroid.x * width
-      const py = participant.centroid.y * height
-      const radius = participant.isPrimary ? 120 : 92
-
-      const aura = ctx.createRadialGradient(px, py, 0, px, py, radius)
-      aura.addColorStop(0, participant.isPrimary ? 'rgba(244, 244, 255, 0.16)' : 'rgba(174, 138, 255, 0.1)')
-      aura.addColorStop(1, 'rgba(0, 0, 0, 0)')
-      ctx.fillStyle = aura
-      ctx.fillRect(px - radius, py - radius, radius * 2, radius * 2)
-
-      ctx.strokeStyle = participant.isPrimary
-        ? `rgba(238, 245, 255, ${0.2 + participant.confidence * 0.34})`
-        : `rgba(172, 129, 255, ${0.14 + participant.confidence * 0.3})`
-      ctx.lineWidth = participant.isPrimary ? 1.9 : 1.1
-
-      POSE_CONNECTIONS.forEach(([from, to]) => {
-        const a = participant.landmarks[from]
-        const b = participant.landmarks[to]
-        if (!a || !b || a.visibility < 0.35 || b.visibility < 0.35) {
-          return
-        }
-        ctx.beginPath()
-        ctx.moveTo(a.x * width, a.y * height)
-        ctx.lineTo(b.x * width, b.y * height)
-        ctx.stroke()
-      })
-    })
   }
 
   private drawHands(hands: HandTrack[], width: number, height: number): void {
@@ -168,11 +123,17 @@ export class SceneRenderer {
     })
   }
 
-  private drawParticles(particles: GlyphParticle[]): void {
+  private drawParticles(particles: GlyphParticle[], width: number, height: number): void {
     const ctx = this.ctx
     ctx.textBaseline = 'alphabetic'
+    ctx.save()
+    ctx.globalCompositeOperation = 'lighter'
 
     particles.forEach((particle) => {
+      if (particle.x < -300 || particle.x > width + 300 || particle.y < -220 || particle.y > height + 220) {
+        return
+      }
+
       const lifeRatio = particle.life / particle.maxLife
       const baseAlpha = Math.max(0, 1 - lifeRatio)
       const alpha = baseAlpha * (0.34 + particle.intensity * 0.62)
@@ -182,15 +143,17 @@ export class SceneRenderer {
 
       const style = resolveParticleStyle(particle, alpha)
 
-      ctx.save()
-      ctx.globalCompositeOperation = 'lighter'
-      ctx.shadowBlur = style.blur
-      ctx.shadowColor = style.shadow
+      if (alpha > 0.16) {
+        ctx.shadowBlur = style.blur
+        ctx.shadowColor = style.shadow
+      } else {
+        ctx.shadowBlur = 0
+      }
       ctx.fillStyle = style.fill
       ctx.font = `${style.weight} ${style.size.toFixed(0)}px 'Noto Sans JP', 'Hiragino Sans', sans-serif`
       ctx.fillText(particle.glyph, particle.x, particle.y)
-      ctx.restore()
     })
+    ctx.restore()
   }
 
   private drawSubtitle(state: SceneState, width: number, height: number): void {
@@ -228,10 +191,10 @@ function resolveParticleStyle(
   particle: GlyphParticle,
   alpha: number,
 ): { fill: string; shadow: string; blur: number; size: number; weight: number } {
-  const grabbedBoost = particle.grabbedBy ? 1.2 : 1
-  const baseSize = particle.size * (0.96 + particle.intensity * 0.2) * grabbedBoost
-  const blur = (9 + particle.glow * 11 + particle.intensity * 20) * grabbedBoost
-  const weight = particle.grabbedBy ? 650 : 560
+  const grabbedBoost = particle.grabbedBy ? 1.14 : 1
+  const baseSize = particle.size * (0.92 + particle.intensity * 0.15) * grabbedBoost
+  const blur = (4.5 + particle.glow * 6 + particle.intensity * 8) * grabbedBoost
+  const weight = particle.grabbedBy ? 620 : 520
 
   if (particle.polarity === 'positive') {
     return {

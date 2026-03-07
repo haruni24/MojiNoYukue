@@ -1,23 +1,13 @@
-import type { GlyphParticle, ParticipantTrack, SceneState } from '../types/scene'
-
-const POSE_CONNECTIONS: Array<[number, number]> = [
-  [11, 12],
-  [11, 13],
-  [13, 15],
-  [12, 14],
-  [14, 16],
-  [11, 23],
-  [12, 24],
-  [23, 24],
-  [23, 25],
-  [25, 27],
-  [24, 26],
-  [26, 28],
-]
+import type { GlyphParticle, SceneState } from '../types/scene'
 
 export class SceneRenderer {
   private readonly ctx: CanvasRenderingContext2D
   private readonly canvas: HTMLCanvasElement
+  private readonly personLayer: HTMLCanvasElement
+  private readonly personCtx: CanvasRenderingContext2D
+  private readonly maskLayer: HTMLCanvasElement
+  private readonly maskCtx: CanvasRenderingContext2D
+  private maskImageData: ImageData | null = null
 
   constructor(canvas: HTMLCanvasElement) {
     const context = canvas.getContext('2d')
@@ -25,14 +15,29 @@ export class SceneRenderer {
       throw new Error('2D canvas context not available')
     }
 
+    const personLayer = document.createElement('canvas')
+    const personCtx = personLayer.getContext('2d')
+    const maskLayer = document.createElement('canvas')
+    const maskCtx = maskLayer.getContext('2d')
+
+    if (!personCtx || !maskCtx) {
+      throw new Error('Offscreen canvas context not available')
+    }
+
     this.canvas = canvas
     this.ctx = context
+    this.personLayer = personLayer
+    this.personCtx = personCtx
+    this.maskLayer = maskLayer
+    this.maskCtx = maskCtx
   }
 
   resize(width: number, height: number): void {
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width
       this.canvas.height = height
+      this.personLayer.width = width
+      this.personLayer.height = height
     }
   }
 
@@ -41,7 +46,8 @@ export class SceneRenderer {
     const ctx = this.ctx
 
     this.drawBackground(width, height, state.silhouetteStrength, timestamp)
-    this.drawParticipants(state.participants, width, height)
+    this.drawSegmentedPeople(state)
+    this.drawParticipantAuras(state, width, height)
     this.drawParticles(state.particles)
     this.drawAmbientHUD(width, height, state)
 
@@ -60,7 +66,7 @@ export class SceneRenderer {
     ctx.fillStyle = gradient
     ctx.fillRect(0, 0, width, height)
 
-    const fogPower = 0.18 + silhouetteStrength * 0.35
+    const fogPower = 0.16 + silhouetteStrength * 0.36
     for (let i = 0; i < 4; i += 1) {
       const radius = 220 + i * 140 + (Math.sin(t + i) + 1) * 40
       const x = width * (0.15 + i * 0.22) + Math.sin(t * 1.8 + i * 2) * 60
@@ -73,38 +79,72 @@ export class SceneRenderer {
     }
   }
 
-  private drawParticipants(participants: ParticipantTrack[], width: number, height: number): void {
+  private drawSegmentedPeople(state: SceneState): void {
+    if (!state.segmentation || !state.videoFrame) {
+      return
+    }
+
+    const width = this.canvas.width
+    const height = this.canvas.height
+    const video = state.videoFrame
+    const segmentation = state.segmentation
+
+    this.personCtx.clearRect(0, 0, width, height)
+    this.personCtx.drawImage(video, 0, 0, width, height)
+
+    this.prepareMask(segmentation.alpha, segmentation.width, segmentation.height)
+
+    this.personCtx.globalCompositeOperation = 'destination-in'
+    this.personCtx.drawImage(this.maskLayer, 0, 0, width, height)
+    this.personCtx.globalCompositeOperation = 'source-over'
+
+    const ctx = this.ctx
+    ctx.save()
+    ctx.globalAlpha = 0.9
+    ctx.drawImage(this.personLayer, 0, 0)
+
+    ctx.globalCompositeOperation = 'screen'
+    ctx.fillStyle = 'rgba(70, 220, 255, 0.2)'
+    ctx.fillRect(0, 0, width, height)
+    ctx.restore()
+  }
+
+  private prepareMask(alpha: Uint8ClampedArray, width: number, height: number): void {
+    if (this.maskLayer.width !== width || this.maskLayer.height !== height) {
+      this.maskLayer.width = width
+      this.maskLayer.height = height
+      this.maskImageData = null
+    }
+
+    if (!this.maskImageData) {
+      this.maskImageData = this.maskCtx.createImageData(width, height)
+    }
+
+    const rgba = this.maskImageData.data
+    for (let i = 0; i < alpha.length; i += 1) {
+      const px = i * 4
+      rgba[px] = 255
+      rgba[px + 1] = 255
+      rgba[px + 2] = 255
+      rgba[px + 3] = alpha[i]
+    }
+
+    this.maskCtx.putImageData(this.maskImageData, 0, 0)
+  }
+
+  private drawParticipantAuras(state: SceneState, width: number, height: number): void {
     const ctx = this.ctx
 
-    participants.forEach((participant) => {
+    state.participants.forEach((participant) => {
       const px = participant.centroid.x * width
       const py = participant.centroid.y * height
-      const baseRadius = participant.isPrimary ? 110 : 80
-      const intensity = Math.min(1, 0.25 + participant.confidence * 0.75)
+      const baseRadius = participant.isPrimary ? 130 : 92
 
       const aura = ctx.createRadialGradient(px, py, 0, px, py, baseRadius)
-      aura.addColorStop(0, participant.isPrimary ? 'rgba(185, 255, 120, 0.32)' : 'rgba(80, 220, 255, 0.18)')
+      aura.addColorStop(0, participant.isPrimary ? 'rgba(185, 255, 120, 0.28)' : 'rgba(80, 220, 255, 0.16)')
       aura.addColorStop(1, 'rgba(0, 0, 0, 0)')
       ctx.fillStyle = aura
       ctx.fillRect(px - baseRadius, py - baseRadius, baseRadius * 2, baseRadius * 2)
-
-      ctx.strokeStyle = participant.isPrimary
-        ? `rgba(180, 255, 130, ${0.65 * intensity})`
-        : `rgba(130, 210, 255, ${0.4 * intensity})`
-      ctx.lineWidth = participant.isPrimary ? 2.2 : 1.2
-
-      POSE_CONNECTIONS.forEach(([from, to]) => {
-        const a = participant.landmarks[from]
-        const b = participant.landmarks[to]
-        if (!a || !b || a.visibility < 0.3 || b.visibility < 0.3) {
-          return
-        }
-
-        ctx.beginPath()
-        ctx.moveTo(a.x * width, a.y * height)
-        ctx.lineTo(b.x * width, b.y * height)
-        ctx.stroke()
-      })
     })
   }
 
