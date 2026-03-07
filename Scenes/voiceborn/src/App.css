@@ -1,0 +1,141 @@
+:root {
+  --bg-top: #04070f;
+  --bg-bottom: #020307;
+  --panel-bg: rgba(6, 14, 27, 0.64);
+  --panel-border: rgba(127, 216, 255, 0.34);
+  --text-main: #d6ebff;
+  --text-sub: #9ec1d9;
+  --accent-primary: #48d9ff;
+  --accent-secondary: #a3ff56;
+}
+
+.voiceborn-app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: radial-gradient(circle at 20% 20%, #10203f 0%, transparent 40%),
+    radial-gradient(circle at 80% 40%, #1f1242 0%, transparent 36%),
+    linear-gradient(135deg, var(--bg-top), var(--bg-bottom));
+}
+
+.input-video {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.scene-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.overlay-frame {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(93, 194, 255, 0.14);
+  box-shadow: inset 0 0 120px rgba(27, 193, 255, 0.1);
+  pointer-events: none;
+}
+
+.control-panel {
+  position: absolute;
+  left: 24px;
+  top: 24px;
+  width: min(360px, calc(100vw - 48px));
+  padding: 20px 22px;
+  border-radius: 16px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  backdrop-filter: blur(10px);
+  color: var(--text-main);
+}
+
+.title-ja {
+  margin: 0;
+  letter-spacing: 0.2em;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+.title-main {
+  margin: 6px 0 14px;
+  font-size: clamp(32px, 6vw, 48px);
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  color: #f0f8ff;
+}
+
+.status,
+.runtime {
+  margin: 0;
+  color: var(--text-sub);
+  font-size: 14px;
+}
+
+.runtime {
+  margin-top: 4px;
+}
+
+.actions {
+  margin-top: 18px;
+  display: flex;
+  gap: 10px;
+}
+
+.actions button {
+  border: 1px solid rgba(125, 222, 255, 0.46);
+  background: linear-gradient(120deg, rgba(31, 133, 180, 0.26), rgba(72, 217, 255, 0.14));
+  color: #dcf4ff;
+  min-width: 108px;
+  padding: 11px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  transition: transform 0.18s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.actions button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 0 20px rgba(75, 212, 255, 0.35);
+}
+
+.actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.warning {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: var(--accent-secondary);
+}
+
+@media (max-width: 780px) {
+  .control-panel {
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+    padding: 16px;
+    border-radius: 14px;
+  }
+
+  .title-main {
+    font-size: clamp(28px, 9vw, 38px);
+  }
+
+  .actions {
+    width: 100%;
+  }
+
+  .actions button {
+    flex: 1;
+  }
+}
