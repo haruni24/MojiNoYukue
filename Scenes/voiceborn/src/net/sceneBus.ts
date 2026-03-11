@@ -181,13 +181,14 @@ export class SceneBusClient {
       socket.addEventListener('close', () => {
         this.stopHeartbeat()
         this.socket = null
+        this.emitError(`scene-bus disconnected: ${this.options.wsUrl}`)
         if (!this.stopped) {
           this.scheduleReconnect()
         }
       })
 
       socket.addEventListener('error', () => {
-        this.emitError('scene-bus connection error')
+        this.emitError(`scene-bus connection error: ${this.options.wsUrl}`)
       })
     } catch (error) {
       this.emitError(error instanceof Error ? error.message : 'scene-bus connect failed')

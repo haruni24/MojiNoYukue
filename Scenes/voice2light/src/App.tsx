@@ -39,6 +39,8 @@ function App() {
   const [handCount, setHandCount] = useState(0)
   const [particleCount, setParticleCount] = useState(0)
   const [fps, setFps] = useState(0)
+  const [busConnected, setBusConnected] = useState(false)
+  const [receiveLogs, setReceiveLogs] = useState<Array<{ at: number; source: string; kind: string; text: string }>>([])
   const statusRef = useRef<RuntimeStatus>('idle')
 
   const resourcesRef = useRef<{
@@ -54,6 +56,8 @@ function App() {
     latestHandCount: number
     latestParticleCount: number
     lastMetricsSentAt: number
+    recentExternalTexts: Map<string, number>
+    busStatusTimerId: number | null
   }>({
     animationId: null,
     vision: null,
@@ -67,6 +71,8 @@ function App() {
     latestHandCount: 0,
     latestParticleCount: 0,
     lastMetricsSentAt: 0,
+    recentExternalTexts: new Map<string, number>(),
+    busStatusTimerId: null,
   })
 
   const hasApiKey = useMemo(() => OPENAI_API_KEY.length > 0, [])
@@ -82,6 +88,10 @@ function App() {
     resources.vision?.dispose()
     resources.feed?.stop()
     resources.bus?.stop()
+    if (resources.busStatusTimerId !== null) {
+      window.clearInterval(resources.busStatusTimerId)
+      resources.busStatusTimerId = null
+    }
 
     resources.director = null
     resources.vision = null
@@ -94,6 +104,8 @@ function App() {
     resources.latestHandCount = 0
     resources.latestParticleCount = 0
     resources.lastMetricsSentAt = 0
+    resources.recentExternalTexts.clear()
+    setBusConnected(false)
 
     if (videoRef.current?.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream
@@ -174,8 +186,11 @@ function App() {
     })
     bus.onError((errorMessage) => {
       console.warn('[scene-bus][voice2light]', errorMessage)
+      pushReceiveLog('scene-bus', 'server.error', errorMessage)
+      setMessage('scene-bus 未接続: ローカル中継サーバを起動してください')
     })
     bus.onEvent((envelope) => {
+      setBusConnected(bus.isConnected())
       handleRemoteEnvelope(envelope)
     })
     bus.start()
@@ -292,6 +307,10 @@ function App() {
       latestHandCount: 0,
       latestParticleCount: 0,
       lastMetricsSentAt: 0,
+      recentExternalTexts: new Map<string, number>(),
+      busStatusTimerId: window.setInterval(() => {
+        setBusConnected(bus.isConnected())
+      }, 500),
     }
 
     bus.publish(
@@ -330,7 +349,10 @@ function App() {
     if (envelope.kind === 'transcript.text' && envelope.sourceNodeId !== BUS_NODE_ID) {
       const payload = envelope.payload as { text?: string } | null
       const text = payload?.text?.trim()
-      if (text) {
+      if (text && shouldAcceptExternalText(envelope.sourceNodeId, text)) {
+        pushReceiveLog(envelope.sourceNodeId, envelope.kind, text)
+        resourcesRef.current.feed?.addLoopText(text)
+        resourcesRef.current.feed?.enqueueText(text)
         resourcesRef.current.director?.enqueueText(text)
       }
       return
@@ -351,9 +373,33 @@ function App() {
     if (envelope.kind === 'scene.cue') {
       const payload = envelope.payload as { cue?: string } | null
       if (payload?.cue) {
+        pushReceiveLog(envelope.sourceNodeId, envelope.kind, payload.cue)
         setMessage(`CUE受信: ${payload.cue}`)
       }
     }
+  }
+
+  const shouldAcceptExternalText = (sourceNodeId: string, text: string): boolean => {
+    const now = Date.now()
+    const key = `${sourceNodeId}:${text}`
+    const recent = resourcesRef.current.recentExternalTexts
+    const prev = recent.get(key)
+    recent.set(key, now)
+
+    for (const [cacheKey, ts] of recent) {
+      if (now - ts > 6000) {
+        recent.delete(cacheKey)
+      }
+    }
+
+    if (!prev) {
+      return true
+    }
+    return now - prev > 1500
+  }
+
+  const pushReceiveLog = (source: string, kind: string, text: string): void => {
+    setReceiveLogs((prev) => [...prev, { at: Date.now(), source, kind, text }].slice(-10))
   }
 
   const runtimeMinutes = Math.floor(runningTimeMs / 60000)
@@ -383,7 +429,12 @@ function App() {
           <div className="status-band">
             <span className="status-label">STATUS</span>
             <p className="status">{message}</p>
+            <p className="status">BUS: {BUS_ENABLED ? (busConnected ? 'ONLINE' : 'OFFLINE') : 'DISABLED'}</p>
           </div>
+
+          {BUS_ENABLED && !busConnected && (
+            <p className="warning">`scene-bus` が未接続です。`scene-bus` を起動しない限り voiceborn の文字は流入しません。</p>
+          )}
 
           <div className="metrics">
             <div className="metric-row">
@@ -432,6 +483,22 @@ function App() {
             <button type="button" onClick={stop} disabled={status !== 'running' && status !== 'booting'}>
               STOP
             </button>
+          </div>
+
+          <div className="metrics">
+            <div className="metric-row">
+              <span>Receive Log</span>
+              <strong>{receiveLogs.length}</strong>
+            </div>
+            {receiveLogs.length === 0 && <p className="warning">まだ受信ログはありません。</p>}
+            {receiveLogs.map((log, index) => (
+              <div className="metric-row" key={`${log.at}-${index}`}>
+                <span>
+                  {new Date(log.at).toLocaleTimeString('ja-JP', { hour12: false })} {log.source}
+                </span>
+                <strong>{`${log.kind}: ${log.text.slice(0, 42)}`}</strong>
+              </div>
+            ))}
           </div>
 
           {!hasApiKey && <p className="warning">`VITE_OPENAI_API_KEY` 未設定のため感情判定はローカル推定です。</p>}

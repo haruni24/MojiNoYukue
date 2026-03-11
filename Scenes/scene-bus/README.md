@@ -9,7 +9,7 @@
 - 監視UI（`/monitor`）
 - イベントログ保持
   - メモリリング（最大 `SCENE_BUS_MAX_LOG` 件）
-  - SQLite 永続化（`events` テーブル）
+- SQLite 永続化（`events` テーブル）
 - ルーティング
   - `scope=broadcast`
   - `scope=group` (`target.groupId`)
@@ -23,10 +23,13 @@
 ```bash
 cp .env.example .env
 npm install
-npm start
+npm run dev
 ```
 
-既定では `http://0.0.0.0:8787` で待受します。
+既定では `http://127.0.0.1:8787` で待受します。
+
+`npm run dev` はファイル監視なしの常駐起動です。`node --watch` は環境によって `EMFILE` で失敗するため使っていません。
+SQLite は Node 標準の `node:sqlite` を使うため、追加のネイティブビルドは不要です。
 
 ## 環境変数
 

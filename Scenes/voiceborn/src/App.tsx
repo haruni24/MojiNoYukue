@@ -153,6 +153,7 @@ function App() {
     })
     bus.onError((errorMessage) => {
       console.warn('[scene-bus][voiceborn]', errorMessage)
+      setMessage('scene-bus 未接続: transcript を配信できません')
     })
     bus.onEvent((envelope) => {
       handleRemoteEnvelope(envelope)

@@ -33,6 +33,10 @@ type VisionCreateOptions = {
   enableSilhouette?: boolean
 }
 
+type ImageProcessingOptions = {
+  rotationDegrees?: number
+}
+
 const POSE_MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task'
 const SEGMENT_MODEL_URL =
@@ -110,9 +114,14 @@ export class VisionEngine {
   }
 
   detect(video: HTMLVideoElement, timestamp: number): VisionSnapshot {
-    const poseResult = this.poseLandmarker.detectForVideo(video, timestamp)
-    const segmentationResult = this.segmenter ? this.segmenter.segmentForVideo(video, timestamp) : null
-    const handResult = this.handLandmarker ? this.handLandmarker.detectForVideo(video, timestamp) : null
+    const imageProcessingOptions = buildImageProcessingOptions(video)
+    const poseResult = this.poseLandmarker.detectForVideo(video, timestamp, imageProcessingOptions)
+    const segmentationResult = this.segmenter
+      ? this.segmenter.segmentForVideo(video, timestamp, imageProcessingOptions)
+      : null
+    const handResult = this.handLandmarker
+      ? this.handLandmarker.detectForVideo(video, timestamp, imageProcessingOptions)
+      : null
 
     this.updatePoseTracksFromResult(poseResult, timestamp)
     const hands = handResult ? this.updateHandTracksFromResult(handResult) : []
@@ -397,4 +406,12 @@ function clamp01(value: number): number {
     return 1
   }
   return value
+}
+
+function buildImageProcessingOptions(video: HTMLVideoElement): ImageProcessingOptions {
+  const isPortrait = video.videoHeight > video.videoWidth
+  return {
+    // Pass explicit processing options so MediaPipe does not infer a square ROI.
+    rotationDegrees: isPortrait ? 90 : 0,
+  }
 }

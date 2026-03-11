@@ -24,8 +24,9 @@ export class SampleVoiceFeed {
 
   private timerId: number | null = null
   private running = false
-  private sampleIndex = 0
+  private cycleIndex = 0
   private queuedTexts: string[] = []
+  private loopTexts: string[] = []
   private onText: ((text: string) => void) | null = null
 
   constructor(options?: SampleVoiceFeedOptions) {
@@ -57,6 +58,22 @@ export class SampleVoiceFeed {
     this.queuedTexts.push(trimmed)
   }
 
+  addLoopText(text: string): void {
+    const trimmed = text.trim()
+    if (!trimmed) {
+      return
+    }
+
+    if (this.loopTexts.includes(trimmed)) {
+      return
+    }
+
+    this.loopTexts.push(trimmed)
+    if (this.loopTexts.length > 24) {
+      this.loopTexts.shift()
+    }
+  }
+
   private scheduleNext(delayMs?: number): void {
     if (!this.running) {
       return
@@ -74,8 +91,9 @@ export class SampleVoiceFeed {
       return
     }
 
-    const next = this.queuedTexts.shift() ?? this.sampleTexts[this.sampleIndex % this.sampleTexts.length]
-    this.sampleIndex += 1
+    const cyclePool = this.loopTexts.length > 0 ? [...this.sampleTexts, ...this.loopTexts] : this.sampleTexts
+    const next = this.queuedTexts.shift() ?? cyclePool[this.cycleIndex % cyclePool.length]
+    this.cycleIndex += 1
     this.onText(next)
   }
 }

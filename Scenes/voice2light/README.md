@@ -43,3 +43,4 @@ npm run dev
 - 初期状態では UI を非表示にしています。`KeyU` で表示できます。
 - 将来追加するネットワーク音声入力の処理は、今回の実装では含めていません。
 - Scene Bus 有効時、`transcript.text` / `emotion.profile` / `metrics.runtime` / `scene.cue` を publish し、`transcript.text` / `control.command` / `scene.cue` を subscribe します。
+- 同一PC運用時は、`voiceborn` と `voice2light` を同じ `VITE_SCENE_BUS_URL`（通常 `ws://127.0.0.1:8787/ws`）に向けることで、サンプル文を流し続けながら `voiceborn` 文字起こし文も追加表示されます。

@@ -37,3 +37,4 @@ npm run dev
 - カメラとマイク権限が必要です。
 - STT通信失敗時も映像演出は継続し、文字生成のみ抑制されます。
 - Scene Bus 有効時、`transcript.text` / `metrics.runtime` / `scene.cue` を publish し、`control.command` / `scene.cue` を subscribe します。
+- 同一PCで `voice2light` と連携する場合は、同一 `VITE_SCENE_BUS_URL` を指定すると `transcript.text` がそのまま `voice2light` 側へ流れます。

@@ -13,7 +13,7 @@
 cd scene-bus
 cp .env.example .env
 npm install
-npm start
+npm run dev
 ```
 
 確認:

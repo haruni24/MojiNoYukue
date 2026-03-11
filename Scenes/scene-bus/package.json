@@ -5,10 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.mjs",
-    "dev": "node --watch src/server.mjs"
+    "dev": "node src/server.mjs"
   },
   "dependencies": {
-    "better-sqlite3": "^11.10.0",
     "ws": "^8.18.0"
   }
 }

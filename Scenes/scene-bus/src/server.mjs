@@ -1,7 +1,7 @@
 import { createServer } from 'node:http'
 import { randomUUID } from 'node:crypto'
+import { DatabaseSync } from 'node:sqlite'
 import { URL } from 'node:url'
-import Database from 'better-sqlite3'
 import { WebSocketServer } from 'ws'
 
 const PORT = Number(process.env.SCENE_BUS_PORT ?? 8787)
@@ -17,7 +17,7 @@ const MAX_RETRY = 3
 const eventLog = []
 let seqCounter = 0
 
-const db = new Database(DB_PATH)
+const db = new DatabaseSync(DB_PATH)
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS events (

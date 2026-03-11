@@ -100,12 +100,8 @@ export class SceneRenderer {
 
     const ctx = this.ctx
     ctx.save()
-    ctx.globalAlpha = 0.9
+    ctx.globalAlpha = 1
     ctx.drawImage(this.personLayer, 0, 0)
-
-    ctx.globalCompositeOperation = 'screen'
-    ctx.fillStyle = 'rgba(70, 220, 255, 0.2)'
-    ctx.fillRect(0, 0, width, height)
     ctx.restore()
   }
 
