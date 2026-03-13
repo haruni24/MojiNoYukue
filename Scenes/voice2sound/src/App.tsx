@@ -79,20 +79,26 @@ function App() {
 
   return (
     <main className="monitor-app">
-      <header>
-        <p className="label">VOICE2SOUND</p>
-        <h1>Scene Bus Receiver</h1>
-        <p>
-          BUS: <strong>{enabledLabel}</strong> / 接続: <strong>{connected ? 'ONLINE' : 'OFFLINE'}</strong>
-        </p>
-        {errorMessage && <p className="error">{errorMessage}</p>}
+      <header className="monitor-header">
+        <p className="scene-label">観測</p>
+        <h1 className="scene-title">イベント観測</h1>
+        <div className="connection-info">
+          <span className={`status-badge ${connected ? 'is-online' : 'is-offline'}`}>
+            {connected ? 'ONLINE' : 'OFFLINE'}
+          </span>
+          <span className="scene-subtitle">BUS {enabledLabel}</span>
+        </div>
+        {errorMessage && <p className="error-text">{errorMessage}</p>}
       </header>
 
-      <section>
-        <div className="table-header">
-          <span>最新受信イベント</span>
+      <section className="events-section">
+        <div className="table-toolbar">
+          <div className="section-heading">
+            <span className="section-heading__text">受信イベント</span>
+          </div>
           <button
             type="button"
+            className="btn"
             onClick={() => {
               clientRef.current?.publish(
                 'scene.cue',
@@ -105,35 +111,37 @@ function App() {
             }}
             disabled={!connected}
           >
-            TEST SEND
+            TEST
           </button>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>seq</th>
-              <th>time</th>
-              <th>source</th>
-              <th>kind</th>
-              <th>scope</th>
-              <th>target</th>
-              <th>payload</th>
-            </tr>
-          </thead>
-          <tbody>
-            {events.map((event) => (
-              <tr key={`${event.seq}-${event.kind}`}>
-                <td>{event.seq}</td>
-                <td>{new Date(event.at).toLocaleTimeString('ja-JP', { hour12: false })}</td>
-                <td>{event.sourceNodeId}</td>
-                <td>{event.kind}</td>
-                <td>{event.scope}</td>
-                <td>{event.target}</td>
-                <td>{event.summary}</td>
+        <div className="events-table-wrap">
+          <table className="ink-table">
+            <thead>
+              <tr>
+                <th>seq</th>
+                <th>time</th>
+                <th>source</th>
+                <th>kind</th>
+                <th>scope</th>
+                <th>target</th>
+                <th>payload</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {events.map((event) => (
+                <tr key={`${event.seq}-${event.kind}`}>
+                  <td>{event.seq}</td>
+                  <td>{new Date(event.at).toLocaleTimeString('ja-JP', { hour12: false })}</td>
+                  <td>{event.sourceNodeId}</td>
+                  <td className="kind-cell">{event.kind}</td>
+                  <td className={`scope-${event.scope}`}>{event.scope}</td>
+                  <td>{event.target}</td>
+                  <td className="payload-cell">{event.summary}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     </main>
   )

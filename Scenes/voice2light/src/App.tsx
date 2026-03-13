@@ -421,9 +421,9 @@ function App() {
       {showPanel && (
         <section className="control-panel">
           <header className="panel-header">
-            <p className="title-ja">声が光になる場所</p>
-            <h1 className="title-main">Voice2Light</h1>
-            <p className="title-sub">Luminous Speech Field</p>
+            <p className="title-ja">声が光になる</p>
+            <h1 className="title-main">光</h1>
+            <p className="title-sub">文字のゆくえ</p>
           </header>
 
           <div className="status-band">

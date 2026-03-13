@@ -1,5 +1,54 @@
 import type { GlyphParticle, HandTrack, SceneState } from '../types/scene'
 
+/*  ──────────────────────────────────────────
+    Voice2Light — Scene Renderer
+    美学: 墨と光の間（あわい）
+
+    背景は漆黒ではなく、わずかに温かみのある闇。
+    文字は光として生まれ、余韻を残して溶け消える。
+    ────────────────────────────────────────── */
+
+// 統一カラーパレット
+const PALETTE = {
+  // 闇（背景グラデーション）
+  voidA: '#08080a',
+  voidB: '#0a0a0e',
+  voidC: '#06060a',
+
+  // 霧（呼吸する背景光）— 暖色系に統一
+  fogWarm: (a: number) => `rgba(196, 169, 106, ${a})`,       // 金泥の霧
+  fogCool: (a: number) => `rgba(180, 175, 165, ${a})`,       // 灰白の霧
+
+  // パーティクル — 感情による色変化
+  positive: {
+    fill: (a: number) => `rgba(232, 224, 198, ${Math.min(1, a)})`,    // 暖かい光
+    glow: (a: number) => `rgba(196, 169, 106, ${Math.min(1, a)})`,    // 金泥の残光
+  },
+  negative: {
+    fill: (a: number) => `rgba(180, 160, 200, ${Math.min(1, a)})`,    // 薄紫の冷光
+    glow: (a: number) => `rgba(140, 120, 180, ${Math.min(1, a)})`,    // 藤色の影
+  },
+  neutral: {
+    fill: (a: number) => `rgba(210, 206, 198, ${Math.min(1, a)})`,    // 灰白
+    glow: (a: number) => `rgba(180, 176, 168, ${Math.min(1, a)})`,    // 薄墨
+  },
+
+  // 手のトラッキング
+  handTrail: 'rgba(196, 169, 106, 0.22)',
+  handGlow: 'rgba(196, 169, 106, 0.4)',
+  palmCenter: (a: number) => `rgba(232, 228, 223, ${a})`,
+  palmEdge: 'rgba(196, 169, 106, 0)',
+  fingerCenter: 'rgba(232, 228, 223, 0.32)',
+  fingerEdge: 'rgba(196, 169, 106, 0)',
+  pinchLine: 'rgba(232, 228, 223, 0.48)',
+  pinchGlow: 'rgba(196, 169, 106, 0.6)',
+
+  // 字幕
+  subtitlePositive: 'rgba(232, 224, 198, 0.62)',
+  subtitleNegative: 'rgba(180, 160, 200, 0.58)',
+  subtitleNeutral: 'rgba(210, 206, 198, 0.52)',
+} as const
+
 export class SceneRenderer {
   private readonly ctx: CanvasRenderingContext2D
   private readonly canvas: HTMLCanvasElement
@@ -39,23 +88,34 @@ export class SceneRenderer {
 
   private drawBackground(width: number, height: number, silhouetteStrength: number, timestamp: number): void {
     const ctx = this.ctx
-    const t = timestamp * 0.00009
+    const t = timestamp * 0.00006 // さらにゆっくり呼吸する
 
+    // ベースの闇 — 完全な黒ではなく、わずかに温かい
     const gradient = ctx.createLinearGradient(0, 0, width, height)
-    gradient.addColorStop(0, '#000000')
-    gradient.addColorStop(0.5, '#030303')
-    gradient.addColorStop(1, '#000000')
+    gradient.addColorStop(0, PALETTE.voidA)
+    gradient.addColorStop(0.5, PALETTE.voidB)
+    gradient.addColorStop(1, PALETTE.voidC)
     ctx.fillStyle = gradient
     ctx.fillRect(0, 0, width, height)
 
-    const fog = 0.06 + silhouetteStrength * 0.2
-    for (let i = 0; i < 4; i += 1) {
-      const radius = 240 + i * 190 + (Math.sin(t * 1.4 + i) + 1) * 48
-      const x = width * (0.16 + i * 0.21) + Math.sin(t * 1.2 + i * 1.7) * 54
-      const y = height * (0.22 + (i % 2) * 0.33) + Math.cos(t * 1.1 + i * 1.4) * 42
+    // 呼吸する霧 — 金泥と灰白の光が空間を漂う
+    const fogBase = 0.03 + silhouetteStrength * 0.12
+    for (let i = 0; i < 5; i += 1) {
+      const breathPhase = Math.sin(t * (0.8 + i * 0.3) + i * 1.7)
+      const radius = 280 + i * 160 + breathPhase * 60
+      const x = width * (0.12 + i * 0.19) + Math.sin(t * 0.9 + i * 2.1) * 70
+      const y = height * (0.18 + (i % 2) * 0.38) + Math.cos(t * 0.7 + i * 1.6) * 55
+      const fog = fogBase * (0.6 + breathPhase * 0.4)
+
       const glow = ctx.createRadialGradient(x, y, 0, x, y, radius)
-      glow.addColorStop(0, `rgba(255, 255, 255, ${fog})`)
-      glow.addColorStop(0.5, `rgba(220, 220, 220, ${fog * 0.22})`)
+      // 交互に暖色と寒色を配置して奥行きを出す
+      if (i % 2 === 0) {
+        glow.addColorStop(0, PALETTE.fogWarm(fog))
+        glow.addColorStop(0.6, PALETTE.fogWarm(fog * 0.15))
+      } else {
+        glow.addColorStop(0, PALETTE.fogCool(fog * 0.7))
+        glow.addColorStop(0.6, PALETTE.fogCool(fog * 0.1))
+      }
       glow.addColorStop(1, 'rgba(0, 0, 0, 0)')
       ctx.fillStyle = glow
       ctx.fillRect(0, 0, width, height)
@@ -78,9 +138,10 @@ export class SceneRenderer {
       ctx.save()
       ctx.globalCompositeOperation = 'lighter'
 
+      // 軌跡 — 金泥色の墨跡
       if (hand.trail.length > 1) {
         ctx.beginPath()
-        ctx.lineWidth = 2.8 + hand.pinchStrength * 2.2
+        ctx.lineWidth = 2.2 + hand.pinchStrength * 2
         for (let i = 0; i < hand.trail.length; i += 1) {
           const t = hand.trail[i]
           const x = t.x * width
@@ -91,31 +152,34 @@ export class SceneRenderer {
             ctx.lineTo(x, y)
           }
         }
-        ctx.strokeStyle = 'rgba(206, 189, 255, 0.34)'
-        ctx.shadowBlur = 16
-        ctx.shadowColor = 'rgba(215, 200, 255, 0.6)'
+        ctx.strokeStyle = PALETTE.handTrail
+        ctx.shadowBlur = 12
+        ctx.shadowColor = PALETTE.handGlow
         ctx.stroke()
       }
 
-      const palmRadius = 52 + hand.pinchStrength * 30
+      // 掌のオーラ
+      const palmRadius = 48 + hand.pinchStrength * 26
       const palm = ctx.createRadialGradient(wristX, wristY, 0, wristX, wristY, palmRadius)
-      palm.addColorStop(0, `rgba(245, 248, 255, ${0.24 + hand.pinchStrength * 0.22})`)
-      palm.addColorStop(1, 'rgba(167, 120, 255, 0)')
+      palm.addColorStop(0, PALETTE.palmCenter(0.18 + hand.pinchStrength * 0.18))
+      palm.addColorStop(1, PALETTE.palmEdge)
       ctx.fillStyle = palm
       ctx.fillRect(wristX - palmRadius, wristY - palmRadius, palmRadius * 2, palmRadius * 2)
 
-      drawFingerBloom(ctx, indexX, indexY, 24 + hand.pinchStrength * 14)
-      drawFingerBloom(ctx, middleX, middleY, 20 + hand.pinchStrength * 11)
-      drawFingerBloom(ctx, thumbX, thumbY, 19 + hand.pinchStrength * 12)
+      // 指先の光点
+      drawFingerBloom(ctx, indexX, indexY, 20 + hand.pinchStrength * 12)
+      drawFingerBloom(ctx, middleX, middleY, 16 + hand.pinchStrength * 9)
+      drawFingerBloom(ctx, thumbX, thumbY, 15 + hand.pinchStrength * 10)
 
+      // ピンチ中の接続線
       if (hand.isPinching) {
         ctx.beginPath()
         ctx.moveTo(indexX, indexY)
         ctx.lineTo(thumbX, thumbY)
-        ctx.lineWidth = 1.8
-        ctx.strokeStyle = 'rgba(246, 249, 255, 0.64)'
-        ctx.shadowBlur = 14
-        ctx.shadowColor = 'rgba(242, 245, 255, 0.82)'
+        ctx.lineWidth = 1.4
+        ctx.strokeStyle = PALETTE.pinchLine
+        ctx.shadowBlur = 10
+        ctx.shadowColor = PALETTE.pinchGlow
         ctx.stroke()
       }
 
@@ -136,21 +200,27 @@ export class SceneRenderer {
 
       const lifeRatio = particle.life / particle.maxLife
       const baseAlpha = Math.max(0, 1 - lifeRatio)
-      const alpha = baseAlpha * (0.34 + particle.intensity * 0.62)
+
+      // 余韻のある消え方 — 最後の20%でゆっくりと溶ける
+      const fadeAlpha = lifeRatio > 0.8
+        ? baseAlpha * (1 - (lifeRatio - 0.8) / 0.2) * 1.5
+        : baseAlpha
+
+      const alpha = fadeAlpha * (0.34 + particle.intensity * 0.62)
       if (alpha <= 0.01) {
         return
       }
 
       const style = resolveParticleStyle(particle, alpha)
 
-      if (alpha > 0.16) {
+      if (alpha > 0.12) {
         ctx.shadowBlur = style.blur
         ctx.shadowColor = style.shadow
       } else {
         ctx.shadowBlur = 0
       }
       ctx.fillStyle = style.fill
-      ctx.font = `${style.weight} ${style.size.toFixed(0)}px 'Noto Sans JP', 'Hiragino Sans', sans-serif`
+      ctx.font = `${style.weight} ${style.size.toFixed(0)}px 'Noto Serif JP', 'Noto Sans JP', 'Hiragino Sans', sans-serif`
       ctx.fillText(particle.glyph, particle.x, particle.y)
     })
     ctx.restore()
@@ -164,16 +234,17 @@ export class SceneRenderer {
     const ctx = this.ctx
     const color =
       state.lastEmotion?.polarity === 'negative'
-        ? 'rgba(220, 186, 255, 0.72)'
+        ? PALETTE.subtitleNegative
         : state.lastEmotion?.polarity === 'positive'
-          ? 'rgba(242, 247, 255, 0.76)'
-          : 'rgba(218, 209, 255, 0.68)'
+          ? PALETTE.subtitlePositive
+          : PALETTE.subtitleNeutral
 
     ctx.save()
-    ctx.font = "500 18px 'Noto Sans JP', 'Hiragino Sans', sans-serif"
+    ctx.font = "400 16px 'Noto Serif JP', 'Noto Sans JP', 'Hiragino Sans', sans-serif"
     ctx.fillStyle = color
     ctx.textAlign = 'center'
-    ctx.fillText(state.lastText, width / 2, height - 26)
+    ctx.letterSpacing = '0.08em'
+    ctx.fillText(state.lastText, width / 2, height - 30)
     ctx.textAlign = 'left'
     ctx.restore()
   }
@@ -181,8 +252,8 @@ export class SceneRenderer {
 
 function drawFingerBloom(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number): void {
   const glow = ctx.createRadialGradient(x, y, 0, x, y, radius)
-  glow.addColorStop(0, 'rgba(250, 252, 255, 0.42)')
-  glow.addColorStop(1, 'rgba(176, 136, 255, 0)')
+  glow.addColorStop(0, PALETTE.fingerCenter)
+  glow.addColorStop(1, PALETTE.fingerEdge)
   ctx.fillStyle = glow
   ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2)
 }
@@ -191,15 +262,15 @@ function resolveParticleStyle(
   particle: GlyphParticle,
   alpha: number,
 ): { fill: string; shadow: string; blur: number; size: number; weight: number } {
-  const grabbedBoost = particle.grabbedBy ? 1.14 : 1
+  const grabbedBoost = particle.grabbedBy ? 1.12 : 1
   const baseSize = particle.size * (0.92 + particle.intensity * 0.15) * grabbedBoost
-  const blur = (4.5 + particle.glow * 6 + particle.intensity * 8) * grabbedBoost
-  const weight = particle.grabbedBy ? 620 : 520
+  const blur = (5 + particle.glow * 7 + particle.intensity * 6) * grabbedBoost
+  const weight = particle.grabbedBy ? 500 : 400
 
   if (particle.polarity === 'positive') {
     return {
-      fill: `rgba(244, 248, 255, ${Math.min(1, alpha * 0.98)})`,
-      shadow: `rgba(239, 246, 255, ${Math.min(1, alpha * 1.18)})`,
+      fill: PALETTE.positive.fill(alpha * 0.95),
+      shadow: PALETTE.positive.glow(alpha * 1.1),
       blur,
       size: baseSize,
       weight,
@@ -208,8 +279,8 @@ function resolveParticleStyle(
 
   if (particle.polarity === 'negative') {
     return {
-      fill: `rgba(212, 176, 255, ${Math.min(1, alpha * 0.95)})`,
-      shadow: `rgba(185, 115, 255, ${Math.min(1, alpha * 1.22)})`,
+      fill: PALETTE.negative.fill(alpha * 0.9),
+      shadow: PALETTE.negative.glow(alpha * 1.15),
       blur,
       size: baseSize,
       weight,
@@ -217,8 +288,8 @@ function resolveParticleStyle(
   }
 
   return {
-    fill: `rgba(226, 213, 255, ${Math.min(1, alpha * 0.85)})`,
-    shadow: `rgba(204, 167, 255, ${Math.min(1, alpha * 1.08)})`,
+    fill: PALETTE.neutral.fill(alpha * 0.85),
+    shadow: PALETTE.neutral.glow(alpha * 1.0),
     blur,
     size: baseSize,
     weight,

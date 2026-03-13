@@ -1,69 +1,193 @@
+/*  ──────────────────────────────────────────
+    終幕 — Ending Control Console
+    ────────────────────────────────────────── */
+
 .ending-app {
   min-height: 100dvh;
-  background: radial-gradient(circle at 20% 15%, #1a2032, #0b0d14 55%);
-  color: #e7eefc;
-  padding: 24px;
-  font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
-}
-
-.label,
-.hero-label {
-  letter-spacing: 0.08em;
-  color: #89d6ff;
-  font-size: 0.82rem;
-}
-
-h1 {
-  margin: 6px 0 10px;
-  font-size: 1.5rem;
-}
-
-.hero {
-  border: 1px solid #2d3850;
-  border-radius: 10px;
-  padding: 14px;
-  margin-top: 14px;
-  background: rgba(7, 11, 20, 0.6);
-}
-
-.hero h2 {
-  margin: 6px 0;
-}
-
-.controls {
+  padding: var(--space-xl) var(--space-lg);
+  background:
+    radial-gradient(ellipse at 18% 12%, rgba(196, 169, 106, 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 82% 80%, rgba(74, 106, 138, 0.03) 0%, transparent 40%),
+    var(--void);
   display: flex;
-  gap: 10px;
-  margin: 14px 0;
+  flex-direction: column;
+  gap: var(--space-lg);
+  max-width: 960px;
+  margin: 0 auto;
 }
 
-button {
-  background: #26334f;
-  color: #e7eefc;
-  border: 1px solid #3b4e72;
-  border-radius: 8px;
-  padding: 8px 12px;
+/* ── ヘッダー ── */
+
+.ending-header {
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--sumi-border);
 }
 
-.transcript {
-  border: 1px solid #2a3650;
-  border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 16px;
+.ending-header .scene-label {
+  margin-bottom: var(--space-xs);
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.84rem;
+.ending-header .scene-title {
+  font-size: var(--text-2xl);
+  margin-bottom: var(--space-sm);
 }
 
-th,
-td {
-  border-bottom: 1px solid #22304a;
-  padding: 6px;
-  text-align: left;
+.ending-header .connection-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-top: var(--space-sm);
 }
 
-.error {
-  color: #ff9da7;
+.error-text {
+  color: var(--shu);
+  font-size: var(--text-sm);
+  margin-top: var(--space-sm);
+}
+
+/* ── ラストキュー（ヒーローエリア） ── */
+
+.last-cue {
+  position: relative;
+  padding: var(--space-lg);
+  border: 1px solid var(--sumi-border);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(196, 169, 106, 0.03), transparent 60%),
+    var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+}
+
+.last-cue::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border: 1px solid var(--sumi-border);
+  border-radius: calc(var(--radius-lg) - 3px);
+  pointer-events: none;
+}
+
+.last-cue .section-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.18em;
+  color: var(--kindei);
+  margin-bottom: var(--space-sm);
+}
+
+.last-cue .cue-value {
+  font-family: var(--font-mincho);
+  font-size: var(--text-xl);
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  color: var(--hikari-bright);
+  margin-bottom: var(--space-sm);
+}
+
+.last-cue .cue-value.is-empty {
+  color: var(--usuzumi-soft);
+  font-style: italic;
+}
+
+.last-cue .cue-meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--usuzumi);
+  letter-spacing: 0.04em;
+}
+
+/* ── 制御ボタン群 ── */
+
+.control-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.control-actions .btn {
+  flex: 1;
+  text-align: center;
+  padding: 12px var(--space-md);
+}
+
+.control-actions .btn--start {
+  border-color: rgba(196, 169, 106, 0.3);
+  color: var(--kindei);
+}
+
+.control-actions .btn--start:hover:not(:disabled) {
+  box-shadow: 0 0 24px var(--kindei-glow);
+}
+
+.control-actions .btn--stop {
+  border-color: rgba(196, 92, 74, 0.25);
+  color: var(--shu);
+}
+
+.control-actions .btn--stop:hover:not(:disabled) {
+  box-shadow: 0 0 24px rgba(196, 92, 74, 0.12);
+}
+
+/* ── トランスクリプト ── */
+
+.transcript-section {
+  padding: var(--space-md);
+  border: 1px solid var(--sumi-border);
+  border-radius: var(--radius-md);
+  background: rgba(10, 10, 14, 0.4);
+}
+
+.transcript-section .section-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.14em;
+  color: var(--usuzumi);
+  margin-bottom: var(--space-sm);
+}
+
+.transcript-text {
+  font-family: var(--font-mincho);
+  font-size: var(--text-lg);
+  color: var(--hikari-soft);
+  line-height: 1.7;
+  letter-spacing: 0.04em;
+}
+
+.transcript-text.is-empty {
+  color: var(--usuzumi-soft);
+  font-family: var(--font-gothic);
+  font-size: var(--text-base);
+}
+
+/* ── CUEログテーブル ── */
+
+.log-section {
+  flex: 1;
+}
+
+.log-section .section-heading {
+  margin-bottom: var(--space-sm);
+}
+
+.log-table-wrap {
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--sumi-border);
+  border-radius: var(--radius-md);
+}
+
+/* ── レスポンシブ ── */
+
+@media (max-width: 640px) {
+  .ending-app {
+    padding: var(--space-md);
+    gap: var(--space-md);
+  }
+
+  .control-actions {
+    flex-direction: column;
+  }
+
+  .last-cue .cue-value {
+    font-size: var(--text-lg);
+  }
 }

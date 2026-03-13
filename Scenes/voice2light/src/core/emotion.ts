@@ -70,8 +70,12 @@ export class OpenAIEmotionAnalyzer implements EmotionAnalyzer {
     }
 
     try {
+      const abort = new AbortController()
+      const timerId = setTimeout(() => abort.abort(), 5000)
+
       const response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
+        signal: abort.signal,
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',

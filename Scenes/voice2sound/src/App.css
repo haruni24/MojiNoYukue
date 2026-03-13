@@ -1,51 +1,106 @@
+/*  ──────────────────────────────────────────
+    観測 — Voice2Sound Event Monitor
+    ────────────────────────────────────────── */
+
 .monitor-app {
   min-height: 100dvh;
-  background: #070a11;
-  color: #dce8ff;
-  padding: 20px;
-  font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+  padding: var(--space-xl) var(--space-lg);
+  background:
+    radial-gradient(ellipse at 76% 14%, rgba(74, 106, 138, 0.04) 0%, transparent 45%),
+    radial-gradient(ellipse at 12% 78%, rgba(196, 169, 106, 0.02) 0%, transparent 40%),
+    var(--void);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  max-width: 1100px;
+  margin: 0 auto;
 }
 
-.label {
-  letter-spacing: 0.08em;
-  color: #63c7ff;
-  font-size: 0.85rem;
+/* ── ヘッダー ── */
+
+.monitor-header {
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--sumi-border);
 }
 
-h1 {
-  margin: 4px 0 8px;
-  font-size: 1.6rem;
+.monitor-header .scene-label {
+  margin-bottom: var(--space-xs);
 }
 
-.error {
-  color: #ff8a8a;
+.monitor-header .scene-title {
+  font-size: var(--text-2xl);
+  margin-bottom: var(--space-sm);
 }
 
-.table-header {
+.monitor-header .connection-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-top: var(--space-sm);
+}
+
+.error-text {
+  color: var(--shu);
+  font-size: var(--text-sm);
+  margin-top: var(--space-sm);
+}
+
+/* ── テーブルエリア ── */
+
+.events-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.events-section .table-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin: 16px 0 8px;
+  margin-bottom: var(--space-md);
 }
 
-button {
-  background: #20334d;
-  border: 1px solid #35557f;
-  color: #dce8ff;
-  border-radius: 6px;
-  padding: 6px 10px;
+.events-table-wrap {
+  flex: 1;
+  max-height: calc(100dvh - 220px);
+  overflow-y: auto;
+  border: 1px solid var(--sumi-border);
+  border-radius: var(--radius-md);
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82rem;
+.ink-table td.kind-cell {
+  color: var(--kindei);
 }
 
-th,
-td {
-  border-bottom: 1px solid #1c293d;
-  padding: 6px;
-  text-align: left;
-  vertical-align: top;
+.ink-table td.scope-broadcast {
+  color: var(--hikari-dim);
+}
+
+.ink-table td.scope-group {
+  color: var(--ai);
+}
+
+.ink-table td.scope-direct {
+  color: var(--emotion-pos);
+}
+
+.ink-table td.payload-cell {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--usuzumi);
+}
+
+/* ── レスポンシブ ── */
+
+@media (max-width: 780px) {
+  .monitor-app {
+    padding: var(--space-md);
+    gap: var(--space-md);
+  }
+
+  .events-table-wrap {
+    max-height: calc(100dvh - 200px);
+  }
 }

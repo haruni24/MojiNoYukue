@@ -1,5 +1,32 @@
 import type { GlyphParticle, SceneState } from '../types/scene'
 
+/*  ──────────────────────────────────────────
+    Voiceborn — Scene Renderer
+    美学: 墨と光の間（あわい）
+
+    voice2lightと同じカラーパレットを共有し、
+    統一された世界観の中で声が文字として誕生する。
+    ────────────────────────────────────────── */
+
+const PALETTE = {
+  voidA: '#08080a',
+  voidB: '#0a0a0e',
+  voidC: '#06060a',
+
+  fogWarm: (a: number) => `rgba(196, 169, 106, ${a})`,
+  fogCool: (a: number) => `rgba(180, 175, 165, ${a})`,
+
+  // HUD — 控えめに、作品の邪魔をしない
+  hudDim: 'rgba(138, 135, 128, 0.4)',
+  hudSoft: 'rgba(210, 206, 198, 0.5)',
+  hudAccent: 'rgba(196, 169, 106, 0.55)',
+  hudTranscript: 'rgba(232, 228, 223, 0.6)',
+
+  // 参加者オーラ — 暖色系に統一
+  auraPrimary: 'rgba(196, 169, 106, 0.18)',
+  auraSecondary: 'rgba(180, 175, 165, 0.1)',
+} as const
+
 export class SceneRenderer {
   private readonly ctx: CanvasRenderingContext2D
   private readonly canvas: HTMLCanvasElement
@@ -56,24 +83,32 @@ export class SceneRenderer {
 
   private drawBackground(width: number, height: number, silhouetteStrength: number, timestamp: number): void {
     const ctx = this.ctx
-    const t = timestamp * 0.00012
+    const t = timestamp * 0.00006
 
     const gradient = ctx.createLinearGradient(0, 0, width, height)
-    gradient.addColorStop(0, '#060911')
-    gradient.addColorStop(0.5, '#070b1a')
-    gradient.addColorStop(1, '#030407')
-
+    gradient.addColorStop(0, PALETTE.voidA)
+    gradient.addColorStop(0.5, PALETTE.voidB)
+    gradient.addColorStop(1, PALETTE.voidC)
     ctx.fillStyle = gradient
     ctx.fillRect(0, 0, width, height)
 
-    const fogPower = 0.16 + silhouetteStrength * 0.36
-    for (let i = 0; i < 4; i += 1) {
-      const radius = 220 + i * 140 + (Math.sin(t + i) + 1) * 40
-      const x = width * (0.15 + i * 0.22) + Math.sin(t * 1.8 + i * 2) * 60
-      const y = height * (0.3 + (i % 2) * 0.25) + Math.cos(t * 1.4 + i) * 35
+    const fogBase = 0.03 + silhouetteStrength * 0.14
+    for (let i = 0; i < 5; i += 1) {
+      const breathPhase = Math.sin(t * (0.8 + i * 0.3) + i * 1.7)
+      const radius = 260 + i * 150 + breathPhase * 50
+      const x = width * (0.12 + i * 0.19) + Math.sin(t * 0.9 + i * 2.1) * 65
+      const y = height * (0.2 + (i % 2) * 0.35) + Math.cos(t * 0.7 + i * 1.6) * 50
+      const fog = fogBase * (0.6 + breathPhase * 0.4)
+
       const glow = ctx.createRadialGradient(x, y, 0, x, y, radius)
-      glow.addColorStop(0, `rgba(30, 210, 255, ${fogPower})`)
-      glow.addColorStop(1, 'rgba(7, 11, 20, 0)')
+      if (i % 2 === 0) {
+        glow.addColorStop(0, PALETTE.fogWarm(fog))
+        glow.addColorStop(0.6, PALETTE.fogWarm(fog * 0.15))
+      } else {
+        glow.addColorStop(0, PALETTE.fogCool(fog * 0.7))
+        glow.addColorStop(0.6, PALETTE.fogCool(fog * 0.1))
+      }
+      glow.addColorStop(1, 'rgba(0, 0, 0, 0)')
       ctx.fillStyle = glow
       ctx.fillRect(0, 0, width, height)
     }
@@ -134,10 +169,10 @@ export class SceneRenderer {
     state.participants.forEach((participant) => {
       const px = participant.centroid.x * width
       const py = participant.centroid.y * height
-      const baseRadius = participant.isPrimary ? 130 : 92
+      const baseRadius = participant.isPrimary ? 120 : 80
 
       const aura = ctx.createRadialGradient(px, py, 0, px, py, baseRadius)
-      aura.addColorStop(0, participant.isPrimary ? 'rgba(185, 255, 120, 0.28)' : 'rgba(80, 220, 255, 0.16)')
+      aura.addColorStop(0, participant.isPrimary ? PALETTE.auraPrimary : PALETTE.auraSecondary)
       aura.addColorStop(1, 'rgba(0, 0, 0, 0)')
       ctx.fillStyle = aura
       ctx.fillRect(px - baseRadius, py - baseRadius, baseRadius * 2, baseRadius * 2)
@@ -149,15 +184,33 @@ export class SceneRenderer {
 
     particles.forEach((particle) => {
       const lifeRatio = particle.life / particle.maxLife
-      const alpha = Math.max(0, (1 - lifeRatio) * 0.9)
-      const blur = 8 + particle.glow * 11
+      const baseAlpha = Math.max(0, (1 - lifeRatio) * 0.9)
+
+      // 余韻フェード
+      const fadeAlpha = lifeRatio > 0.75
+        ? baseAlpha * (1 - (lifeRatio - 0.75) / 0.25) * 1.4
+        : baseAlpha
+
+      const blur = 6 + particle.glow * 8
 
       ctx.save()
       ctx.globalCompositeOperation = 'lighter'
       ctx.shadowBlur = blur
-      ctx.shadowColor = `hsla(${particle.hue}, 95%, 72%, ${alpha})`
-      ctx.fillStyle = `hsla(${particle.hue}, 90%, 74%, ${alpha})`
-      ctx.font = `${particle.size.toFixed(0)}px 'Noto Sans JP', 'Hiragino Sans', sans-serif`
+
+      // hueを統一パレットにマッピング
+      // 170-220 (シアン寄り) → 灰白系, 220-290 (紫寄り) → 金泥系
+      const warmth = (particle.hue - 170) / 120 // 0..1
+      if (warmth < 0.42) {
+        // 灰白系の光
+        ctx.shadowColor = `rgba(210, 206, 198, ${fadeAlpha})`
+        ctx.fillStyle = `rgba(232, 228, 223, ${fadeAlpha * 0.9})`
+      } else {
+        // 金泥系の光
+        ctx.shadowColor = `rgba(196, 169, 106, ${fadeAlpha * 0.9})`
+        ctx.fillStyle = `rgba(220, 206, 170, ${fadeAlpha * 0.85})`
+      }
+
+      ctx.font = `${particle.size.toFixed(0)}px 'Noto Serif JP', 'Noto Sans JP', 'Hiragino Sans', sans-serif`
       ctx.fillText(particle.glyph, particle.x, particle.y)
       ctx.restore()
     })
@@ -165,23 +218,25 @@ export class SceneRenderer {
 
   private drawAmbientHUD(width: number, height: number, state: SceneState): void {
     const ctx = this.ctx
-    const primary = state.participants.find((p) => p.isPrimary)
 
     ctx.save()
-    ctx.fillStyle = 'rgba(175, 240, 255, 0.75)'
-    ctx.font = "500 14px 'Noto Sans JP', 'Hiragino Sans', sans-serif"
-    ctx.fillText(`PARTICIPANTS ${state.participants.length}`, 24, 32)
-    ctx.fillText(`AUDIO ${(state.audioMetrics.rms * 100).toFixed(1)}%`, 24, 54)
+    // 控えめなHUD — 作品の邪魔をしない
+    ctx.fillStyle = PALETTE.hudDim
+    ctx.font = "300 11px 'IBM Plex Mono', monospace"
+    ctx.fillText(`PARTICIPANTS ${state.participants.length}`, 24, 30)
+    ctx.fillText(`AUDIO ${(state.audioMetrics.rms * 100).toFixed(1)}%`, 24, 46)
+
+    const primary = state.participants.find((p) => p.isPrimary)
     if (primary) {
-      ctx.fillStyle = 'rgba(191, 255, 141, 0.86)'
-      ctx.fillText(`PRIMARY ${primary.id}`, 24, 76)
+      ctx.fillStyle = PALETTE.hudAccent
+      ctx.fillText(`PRIMARY ${primary.id}`, 24, 62)
     }
 
     if (state.lastTranscript) {
       ctx.textAlign = 'center'
-      ctx.fillStyle = 'rgba(195, 225, 255, 0.88)'
-      ctx.font = "500 18px 'Noto Sans JP', 'Hiragino Sans', sans-serif"
-      ctx.fillText(state.lastTranscript, width / 2, height - 28)
+      ctx.fillStyle = PALETTE.hudTranscript
+      ctx.font = "400 15px 'Noto Serif JP', 'Noto Sans JP', 'Hiragino Sans', sans-serif"
+      ctx.fillText(state.lastTranscript, width / 2, height - 30)
       ctx.textAlign = 'left'
     }
     ctx.restore()

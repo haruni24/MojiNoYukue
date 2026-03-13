@@ -1,17 +1,1 @@
-* {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#root {
-  width: 100%;
-  height: 100%;
-  margin: 0;
-}
-
-body {
-  font-family: 'IBM Plex Sans JP', 'Noto Sans JP', 'Hiragino Sans', sans-serif;
-  background: #020307;
-  color: #d6ebff;
-}
+@import '../../shared/base.css';

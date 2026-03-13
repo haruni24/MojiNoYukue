@@ -1,0 +1,311 @@
+/*  ──────────────────────────────────────────
+    文字のゆくえ ── 共通ベーススタイル
+    ────────────────────────────────────────── */
+
+@import './tokens.css';
+
+/* ── リセット＆基盤 ── */
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-gothic);
+  font-size: var(--text-base);
+  color: var(--hikari);
+  background: var(--void);
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+}
+
+/* ── 共通パネル ── */
+
+.panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--sumi-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-panel);
+  position: relative;
+}
+
+.panel::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px solid var(--sumi-border);
+  border-radius: calc(var(--radius-lg) - 4px);
+  pointer-events: none;
+}
+
+/* ── タイトル体系 ── */
+
+.scene-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.22em;
+  color: var(--usuzumi);
+  text-transform: uppercase;
+}
+
+.scene-title {
+  font-family: var(--font-mincho);
+  font-size: var(--text-hero);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  color: var(--hikari-bright);
+}
+
+.scene-subtitle {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.14em;
+  color: var(--hikari-dim);
+  text-transform: uppercase;
+}
+
+/* ── ボタン ── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  border: 1px solid var(--sumi-border-h);
+  background: linear-gradient(
+    140deg,
+    rgba(232, 228, 223, 0.06),
+    rgba(232, 228, 223, 0.02)
+  );
+  color: var(--hikari-soft);
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out),
+    box-shadow var(--duration-base) var(--ease-out),
+    color var(--duration-base) var(--ease-out);
+  user-select: none;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--sumi-border-h);
+  box-shadow: 0 0 24px var(--kindei-glow);
+  color: var(--hikari);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.btn--accent {
+  border-color: var(--kindei-soft);
+  color: var(--kindei);
+}
+
+.btn--accent:hover:not(:disabled) {
+  box-shadow: 0 0 28px var(--kindei-glow);
+  color: var(--hikari-bright);
+}
+
+/* ── ステータスバッジ ── */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  color: var(--usuzumi);
+  padding: 3px 10px;
+  border: 1px solid var(--sumi-border);
+  border-radius: 999px;
+}
+
+.status-badge::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--usuzumi);
+  transition: background var(--duration-slow) var(--ease-breath);
+}
+
+.status-badge.is-online::before {
+  background: var(--kindei);
+  box-shadow: 0 0 8px var(--kindei-soft);
+}
+
+.status-badge.is-offline::before {
+  background: var(--shu);
+}
+
+/* ── メーター ── */
+
+.meter {
+  position: relative;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--hikari-ghost);
+  overflow: hidden;
+}
+
+.meter__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    var(--hikari-dim),
+    var(--hikari-soft)
+  );
+  transition: width var(--duration-fast) var(--ease-out);
+}
+
+/* ── テーブル（墨罫線スタイル） ── */
+
+.ink-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.ink-table th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--usuzumi-soft);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--sumi-border-h);
+}
+
+.ink-table td {
+  padding: 7px 8px;
+  color: var(--hikari-dim);
+  border-bottom: 1px solid var(--sumi-border);
+  vertical-align: top;
+}
+
+.ink-table tr:hover td {
+  color: var(--hikari-soft);
+  background: rgba(232, 228, 223, 0.02);
+}
+
+/* ── フルスクリーンシーン ── */
+
+.scene-fullscreen {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--void);
+}
+
+.scene-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── オーバーレイフレーム（額縁効果） ── */
+
+.scene-frame {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(232, 228, 223, 0.05);
+  box-shadow:
+    inset 0 0 120px rgba(8, 8, 10, 0.6),
+    inset 0 0 40px rgba(8, 8, 10, 0.3);
+  pointer-events: none;
+}
+
+/* ── スクロールバー ── */
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--sumi-border-h);
+  border-radius: 999px;
+}
+
+/* ── セクション見出し ── */
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.section-heading::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    var(--sumi-border-h),
+    transparent
+  );
+}
+
+.section-heading__text {
+  font-family: var(--font-mincho);
+  font-size: var(--text-base);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: var(--usuzumi);
+  white-space: nowrap;
+}
+
+/* ── 呼吸アニメーション ── */
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 1; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-breathe {
+  animation: breathe 4s var(--ease-breath) infinite;
+}
+
+.animate-fade-in {
+  animation: fade-in var(--duration-slow) var(--ease-out) both;
+}

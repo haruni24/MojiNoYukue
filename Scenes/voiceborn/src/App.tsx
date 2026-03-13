@@ -305,11 +305,11 @@ function App() {
       <div className="overlay-frame" aria-hidden="true" />
 
       <section className="control-panel">
-        <p className="title-ja">声が誕生する所</p>
-        <h1 className="title-main">VOICEBORN</h1>
+        <p className="title-ja">声が文字として誕生する</p>
+        <h1 className="title-main">声生</h1>
         <p className="status">{message}</p>
         <p className="runtime">
-          Runtime {runtimeMinutes.toString().padStart(2, '0')}:{runtimeSeconds
+          {runtimeMinutes.toString().padStart(2, '0')}:{runtimeSeconds
             .toString()
             .padStart(2, '0')}
         </p>
@@ -324,7 +324,7 @@ function App() {
         </div>
 
         {!hasApiKey && (
-          <p className="warning">`VITE_OPENAI_API_KEY` が未設定のため文字化演出は無効です。</p>
+          <p className="warning">VITE_OPENAI_API_KEY が未設定のため文字化演出は無効です。</p>
         )}
       </section>
     </div>

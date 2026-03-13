@@ -1,22 +1,14 @@
-:root {
-  --bg-top: #04070f;
-  --bg-bottom: #020307;
-  --panel-bg: rgba(6, 14, 27, 0.64);
-  --panel-border: rgba(127, 216, 255, 0.34);
-  --text-main: #d6ebff;
-  --text-sub: #9ec1d9;
-  --accent-primary: #48d9ff;
-  --accent-secondary: #a3ff56;
-}
+/*  ──────────────────────────────────────────
+    声生 — Voiceborn Scene
+    声が文字として誕生する場所
+    ────────────────────────────────────────── */
 
 .voiceborn-app {
   position: relative;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: radial-gradient(circle at 20% 20%, #10203f 0%, transparent 40%),
-    radial-gradient(circle at 80% 40%, #1f1242 0%, transparent 36%),
-    linear-gradient(135deg, var(--bg-top), var(--bg-bottom));
+  background: var(--void-deep);
 }
 
 .input-video {
@@ -34,87 +26,136 @@
   height: 100%;
 }
 
+/* ── 額縁オーバーレイ ── */
+
 .overlay-frame {
   position: absolute;
   inset: 0;
-  border: 1px solid rgba(93, 194, 255, 0.14);
-  box-shadow: inset 0 0 120px rgba(27, 193, 255, 0.1);
+  border: 1px solid rgba(232, 228, 223, 0.04);
+  box-shadow:
+    inset 0 0 180px rgba(8, 8, 10, 0.7),
+    inset 0 0 60px rgba(8, 8, 10, 0.4);
   pointer-events: none;
 }
 
+/* ── コントロールパネル ── */
+
 .control-panel {
   position: absolute;
-  left: 24px;
-  top: 24px;
+  left: var(--space-lg);
+  top: var(--space-lg);
   width: min(360px, calc(100vw - 48px));
   padding: 20px 22px;
-  border-radius: 16px;
-  border: 1px solid var(--panel-border);
-  background: var(--panel-bg);
-  backdrop-filter: blur(10px);
-  color: var(--text-main);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--sumi-border);
+  background:
+    linear-gradient(135deg, rgba(232, 228, 223, 0.02), transparent 50%),
+    var(--glass-bg);
+  color: var(--hikari);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  animation: fade-in var(--duration-slow) var(--ease-out) both;
 }
+
+.control-panel::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px solid var(--sumi-border);
+  border-radius: calc(var(--radius-lg) - 4px);
+  pointer-events: none;
+}
+
+/* ── タイトル ── */
 
 .title-ja {
   margin: 0;
-  letter-spacing: 0.2em;
-  font-size: 12px;
-  color: var(--text-sub);
+  font-family: var(--font-mono);
+  color: var(--usuzumi);
+  font-size: var(--text-xs);
+  letter-spacing: 0.22em;
 }
 
 .title-main {
-  margin: 6px 0 14px;
-  font-size: clamp(32px, 6vw, 48px);
-  letter-spacing: 0.12em;
-  font-weight: 700;
-  color: #f0f8ff;
+  margin: var(--space-sm) 0 var(--space-md);
+  font-family: var(--font-mincho);
+  font-size: var(--text-hero);
+  line-height: 1;
+  letter-spacing: 0.08em;
+  font-weight: 400;
+  color: var(--hikari-bright);
 }
+
+/* ── ステータス ── */
 
 .status,
 .runtime {
   margin: 0;
-  color: var(--text-sub);
-  font-size: 14px;
+  font-size: var(--text-sm);
+  color: var(--hikari-soft);
 }
 
 .runtime {
-  margin-top: 4px;
+  margin-top: var(--space-xs);
+  font-family: var(--font-mono);
+  color: var(--usuzumi);
+  letter-spacing: 0.06em;
 }
 
+/* ── アクション ── */
+
 .actions {
-  margin-top: 18px;
+  margin-top: var(--space-md);
   display: flex;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .actions button {
-  border: 1px solid rgba(125, 222, 255, 0.46);
-  background: linear-gradient(120deg, rgba(31, 133, 180, 0.26), rgba(72, 217, 255, 0.14));
-  color: #dcf4ff;
-  min-width: 108px;
-  padding: 11px 16px;
-  border-radius: 999px;
+  flex: 1;
+  border: 1px solid var(--sumi-border-h);
+  background: linear-gradient(
+    130deg,
+    rgba(232, 228, 223, 0.06),
+    rgba(232, 228, 223, 0.02)
+  );
+  color: var(--hikari-soft);
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 13px;
-  letter-spacing: 0.16em;
-  transition: transform 0.18s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: 0.14em;
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out),
+    box-shadow var(--duration-base) var(--ease-out),
+    color var(--duration-base) var(--ease-out);
 }
 
 .actions button:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 0 20px rgba(75, 212, 255, 0.35);
+  border-color: rgba(232, 228, 223, 0.25);
+  box-shadow: 0 0 20px var(--kindei-glow);
+  color: var(--hikari);
 }
 
 .actions button:disabled {
-  opacity: 0.45;
+  opacity: 0.3;
   cursor: not-allowed;
 }
 
+/* ── 警告 ── */
+
 .warning {
-  margin: 14px 0 0;
-  font-size: 12px;
-  color: var(--accent-secondary);
+  margin: var(--space-md) 0 0;
+  color: var(--usuzumi);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+  line-height: 1.5;
 }
+
+/* ── レスポンシブ ── */
 
 @media (max-width: 780px) {
   .control-panel {
@@ -124,15 +165,11 @@
     bottom: 12px;
     width: auto;
     padding: 16px;
-    border-radius: 14px;
+    border-radius: calc(var(--radius-lg) - 2px);
   }
 
   .title-main {
     font-size: clamp(28px, 9vw, 38px);
-  }
-
-  .actions {
-    width: 100%;
   }
 
   .actions button {

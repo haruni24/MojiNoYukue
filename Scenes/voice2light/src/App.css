@@ -1,24 +1,14 @@
-:root {
-  --bg-top: #000000;
-  --bg-bottom: #020202;
-  --panel-bg: rgba(8, 8, 8, 0.78);
-  --panel-line: rgba(235, 235, 235, 0.42);
-  --panel-line-soft: rgba(235, 235, 235, 0.16);
-  --text-main: #f2f2f2;
-  --text-sub: #c8c8c8;
-  --text-dim: rgba(186, 186, 186, 0.64);
-  --white-glow: #fafafa;
-}
+/*  ──────────────────────────────────────────
+    光 — Voice2Light Scene
+    声が光になる場所
+    ────────────────────────────────────────── */
 
 .voice2light-app {
   position: relative;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 14% 22%, rgba(255, 255, 255, 0.09) 0%, transparent 48%),
-    radial-gradient(circle at 80% 28%, rgba(255, 255, 255, 0.05) 0%, transparent 40%),
-    linear-gradient(145deg, var(--bg-top), var(--bg-bottom));
+  background: var(--void-deep);
 }
 
 .input-video {
@@ -36,247 +26,261 @@
   height: 100%;
 }
 
+/* ── 額縁オーバーレイ ── */
+
 .overlay-frame {
   position: absolute;
   inset: 0;
-  border: 1px solid rgba(236, 236, 236, 0.1);
+  border: 1px solid rgba(232, 228, 223, 0.04);
   box-shadow:
-    inset 0 0 160px rgba(255, 255, 255, 0.08),
-    inset 0 0 40px rgba(255, 255, 255, 0.05);
+    inset 0 0 180px rgba(8, 8, 10, 0.7),
+    inset 0 0 60px rgba(8, 8, 10, 0.4);
   pointer-events: none;
 }
+
+/* ── UIヒント ── */
 
 .ui-hint {
   position: absolute;
-  right: 16px;
-  top: 13px;
+  right: var(--space-md);
+  top: var(--space-md);
   margin: 0;
-  font-size: 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   letter-spacing: 0.16em;
-  color: var(--text-dim);
+  color: var(--hikari-ghost);
   user-select: none;
   pointer-events: none;
-  font-family: 'IBM Plex Mono', 'SFMono-Regular', Menlo, monospace;
+  transition: opacity var(--duration-slow) var(--ease-out);
 }
+
+/* ── コントロールパネル ── */
 
 .control-panel {
   position: absolute;
-  left: 22px;
-  top: 22px;
-  width: min(430px, calc(100vw - 44px));
-  padding: 18px 20px 20px;
-  border-radius: 10px;
-  border: 1px solid var(--panel-line-soft);
+  left: var(--space-lg);
+  top: var(--space-lg);
+  width: min(400px, calc(100vw - 48px));
+  padding: 20px 22px 22px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--sumi-border);
   background:
-    linear-gradient(100deg, rgba(255, 255, 255, 0.03), transparent 48%),
-    linear-gradient(140deg, rgba(255, 255, 255, 0.05), rgba(2, 2, 2, 0.9)),
-    var(--panel-bg);
-  color: var(--text-main);
-  box-shadow:
-    0 26px 66px rgba(0, 0, 0, 0.42),
-    inset 0 1px 0 rgba(249, 246, 255, 0.1);
-  backdrop-filter: blur(10px);
-}
-
-.control-panel::before,
-.control-panel::after {
-  content: '';
-  position: absolute;
-  pointer-events: none;
+    linear-gradient(135deg, rgba(232, 228, 223, 0.02), transparent 50%),
+    var(--glass-bg);
+  color: var(--hikari);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  animation: fade-in var(--duration-slow) var(--ease-out) both;
 }
 
 .control-panel::before {
-  inset: 8px;
-  border: 1px solid rgba(235, 235, 235, 0.2);
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px solid var(--sumi-border);
+  border-radius: calc(var(--radius-lg) - 4px);
+  pointer-events: none;
 }
 
-.control-panel::after {
-  left: 20px;
-  right: 20px;
-  top: 84px;
-  border-top: 1px dashed rgba(232, 232, 232, 0.24);
-}
+/* ── パネルヘッダー ── */
 
 .panel-header {
   position: relative;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--sumi-border);
 }
 
 .title-ja {
   margin: 0;
-  color: var(--text-sub);
-  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--usuzumi);
+  font-size: var(--text-xs);
   letter-spacing: 0.22em;
-  text-transform: uppercase;
 }
 
 .title-main {
-  margin: 7px 0 0;
-  font-size: clamp(30px, 5vw, 46px);
+  margin: var(--space-sm) 0 0;
+  font-family: var(--font-mincho);
+  font-size: var(--text-hero);
   line-height: 1;
   letter-spacing: 0.08em;
-  font-weight: 540;
-  color: var(--white-glow);
-  font-family: 'YuMincho', 'Hiragino Mincho ProN', serif;
+  font-weight: 400;
+  color: var(--hikari-bright);
 }
 
 .title-sub {
-  margin: 6px 0 0;
-  font-size: 11px;
-  letter-spacing: 0.17em;
-  color: var(--text-dim);
+  margin: var(--space-xs) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.14em;
+  color: var(--hikari-dim);
   text-transform: uppercase;
 }
 
+/* ── ステータス ── */
+
 .status-band {
-  display: grid;
-  grid-template-columns: 72px 1fr;
-  gap: 10px;
-  align-items: baseline;
-  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
 }
 
 .status-label {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--panel-line);
+  border: 1px solid var(--sumi-border-h);
   border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  color: var(--text-sub);
+  padding: 3px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  color: var(--usuzumi);
 }
 
 .status {
   margin: 0;
-  font-size: 15px;
-  line-height: 1.35;
-  color: var(--text-main);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  color: var(--hikari-soft);
 }
 
+/* ── メトリクス ── */
+
 .metrics {
-  margin-top: 14px;
+  margin-top: var(--space-md);
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 16px;
-  row-gap: 8px;
+  column-gap: var(--space-md);
+  row-gap: var(--space-sm);
 }
 
 .metric-row {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 8px;
-  border-bottom: 1px solid rgba(210, 210, 210, 0.2);
-  padding-bottom: 4px;
+  gap: var(--space-sm);
+  border-bottom: 1px solid var(--sumi-border);
+  padding-bottom: var(--space-xs);
 }
 
 .metric-row span {
-  font-size: 12px;
-  color: var(--text-sub);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--usuzumi);
   letter-spacing: 0.08em;
 }
 
 .metric-row strong {
-  font-size: 16px;
+  font-size: var(--text-base);
   font-weight: 500;
-  color: var(--white-glow);
-  font-family: 'IBM Plex Mono', 'SFMono-Regular', Menlo, monospace;
+  color: var(--hikari-bright);
+  font-family: var(--font-mono);
 }
 
+/* ── メーター ── */
+
 .meter-stack {
-  margin-top: 14px;
+  margin-top: var(--space-md);
   display: grid;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .meter {
   display: grid;
-  grid-template-columns: 70px 1fr;
+  grid-template-columns: 64px 1fr;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .meter label {
-  color: var(--text-dim);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  font-family: 'IBM Plex Mono', 'SFMono-Regular', Menlo, monospace;
+  color: var(--hikari-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
 }
 
 .meter-track {
   position: relative;
-  height: 7px;
+  height: 4px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--hikari-ghost);
   overflow: hidden;
 }
 
 .meter-fill {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, rgba(250, 250, 250, 0.82), rgba(214, 214, 214, 0.9));
-  box-shadow: 0 0 14px rgba(255, 255, 255, 0.28);
-  transition: width 160ms ease-out;
+  background: linear-gradient(
+    90deg,
+    var(--usuzumi-soft),
+    var(--hikari-soft)
+  );
+  box-shadow: 0 0 10px var(--kindei-glow);
+  transition: width var(--duration-fast) var(--ease-out);
 }
 
-.meter-fill.is-particle {
-  background: linear-gradient(90deg, rgba(215, 215, 215, 0.84), rgba(255, 255, 255, 0.82));
-}
-
-.meter-fill.is-fps {
-  background: linear-gradient(90deg, rgba(182, 182, 182, 0.82), rgba(248, 248, 248, 0.88));
-}
+/* ── アクション ── */
 
 .actions {
-  margin-top: 16px;
+  margin-top: var(--space-md);
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .actions button {
-  border: 1px solid rgba(228, 228, 228, 0.38);
-  background:
-    linear-gradient(130deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04)),
-    rgba(10, 10, 10, 0.72);
-  color: var(--text-main);
+  border: 1px solid var(--sumi-border-h);
+  background: linear-gradient(
+    130deg,
+    rgba(232, 228, 223, 0.06),
+    rgba(232, 228, 223, 0.02)
+  );
+  color: var(--hikari-soft);
   padding: 10px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 12px;
-  letter-spacing: 0.18em;
-  font-family: 'IBM Plex Mono', 'SFMono-Regular', Menlo, monospace;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: 0.14em;
   transition:
-    transform 0.14s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    opacity 0.2s ease;
+    transform var(--duration-fast) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out),
+    box-shadow var(--duration-base) var(--ease-out),
+    color var(--duration-base) var(--ease-out);
 }
 
 .actions button:hover:not(:disabled) {
   transform: translateY(-1px);
-  border-color: rgba(240, 240, 240, 0.66);
-  box-shadow: 0 0 18px rgba(255, 255, 255, 0.22);
+  border-color: rgba(232, 228, 223, 0.25);
+  box-shadow: 0 0 20px var(--kindei-glow);
+  color: var(--hikari);
 }
 
 .actions button:disabled {
-  opacity: 0.42;
+  opacity: 0.3;
   cursor: not-allowed;
 }
 
+/* ── 警告 ── */
+
 .warning {
-  margin: 12px 0 0;
-  color: #d3d3d3;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  line-height: 1.45;
+  margin: var(--space-sm) 0 0;
+  color: var(--usuzumi);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+  line-height: 1.5;
 }
+
+/* ── レスポンシブ ── */
 
 @media (max-width: 900px) {
   .control-panel {
-    width: min(460px, calc(100vw - 24px));
+    width: min(440px, calc(100vw - 24px));
     left: 12px;
     top: auto;
     bottom: 12px;
@@ -286,10 +290,6 @@
 @media (max-width: 640px) {
   .control-panel {
     padding: 14px;
-  }
-
-  .control-panel::after {
-    top: 72px;
   }
 
   .title-main {

@@ -68,10 +68,10 @@ export function materializeTranscript(
         vx: Math.cos(baseAngle) * speed,
         vy: Math.sin(baseAngle) * speed,
         life: 0,
-        maxLife: 3200 + Math.random() * 1800,
-        size: (18 + Math.random() * 24) * densityMultiplier,
+        maxLife: 6000 + Math.random() * 6000,
+        size: (20 + Math.random() * 22) * densityMultiplier,
         hue: 170 + Math.random() * 120,
-        glow: 0.6 + Math.random() * 0.8,
+        glow: 0.5 + Math.random() * 0.6,
       })
     })
   })

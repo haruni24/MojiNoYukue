@@ -81,64 +81,75 @@ function App() {
 
   return (
     <main className="ending-app">
-      <header>
-        <p className="label">ENDING CONTROL</p>
-        <h1>Scene Bus Cue Console</h1>
-        <p>
-          BUS: <strong>{enabledLabel}</strong> / 接続: <strong>{connected ? 'ONLINE' : 'OFFLINE'}</strong>
-        </p>
-        {errorMessage && <p className="error">{errorMessage}</p>}
+      <header className="ending-header">
+        <p className="scene-label">終幕制御</p>
+        <h1 className="scene-title">文字のゆくえ</h1>
+        <div className="connection-info">
+          <span className={`status-badge ${connected ? 'is-online' : 'is-offline'}`}>
+            {connected ? 'ONLINE' : 'OFFLINE'}
+          </span>
+          <span className="scene-subtitle">BUS {enabledLabel}</span>
+        </div>
+        {errorMessage && <p className="error-text">{errorMessage}</p>}
       </header>
 
-      <section className="hero">
-        <p className="hero-label">LAST CUE</p>
-        <h2>{lastCue ? lastCue.cue : 'no cue yet'}</h2>
-        <p>
+      <section className="last-cue">
+        <p className="section-label">LAST CUE</p>
+        <p className={`cue-value ${lastCue ? '' : 'is-empty'}`}>
+          {lastCue ? lastCue.cue : '待機中'}
+        </p>
+        <p className="cue-meta">
           {lastCue
-            ? `${lastCue.sourceNodeId} @ ${new Date(lastCue.at).toLocaleTimeString('ja-JP', { hour12: false })}`
-            : '待機中'}
+            ? `${lastCue.sourceNodeId} — ${new Date(lastCue.at).toLocaleTimeString('ja-JP', { hour12: false })}`
+            : '—'}
         </p>
       </section>
 
-      <section className="controls">
-        <button type="button" onClick={() => sendControl('start')} disabled={!connected}>
-          BROADCAST START
+      <nav className="control-actions">
+        <button type="button" className="btn btn--start" onClick={() => sendControl('start')} disabled={!connected}>
+          START
         </button>
-        <button type="button" onClick={() => sendControl('stop')} disabled={!connected}>
-          BROADCAST STOP
+        <button type="button" className="btn btn--stop" onClick={() => sendControl('stop')} disabled={!connected}>
+          STOP
         </button>
-        <button type="button" onClick={() => sendControl('reload')} disabled={!connected}>
-          BROADCAST RELOAD
+        <button type="button" className="btn" onClick={() => sendControl('reload')} disabled={!connected}>
+          RELOAD
         </button>
+      </nav>
+
+      <section className="transcript-section">
+        <p className="section-label">TRANSCRIPT</p>
+        <p className={`transcript-text ${latestTranscript ? '' : 'is-empty'}`}>
+          {latestTranscript || '未受信'}
+        </p>
       </section>
 
-      <section className="transcript">
-        <p className="hero-label">LAST TRANSCRIPT</p>
-        <p>{latestTranscript || '未受信'}</p>
-      </section>
-
-      <section>
-        <h3>受信 CUE ログ</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>seq</th>
-              <th>time</th>
-              <th>source</th>
-              <th>cue</th>
-            </tr>
-          </thead>
-          <tbody>
-            {cues.map((cue) => (
-              <tr key={cue.seq}>
-                <td>{cue.seq}</td>
-                <td>{new Date(cue.at).toLocaleTimeString('ja-JP', { hour12: false })}</td>
-                <td>{cue.sourceNodeId}</td>
-                <td>{cue.cue}</td>
+      <section className="log-section">
+        <div className="section-heading">
+          <span className="section-heading__text">受信キューログ</span>
+        </div>
+        <div className="log-table-wrap">
+          <table className="ink-table">
+            <thead>
+              <tr>
+                <th>seq</th>
+                <th>time</th>
+                <th>source</th>
+                <th>cue</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {cues.map((cue) => (
+                <tr key={cue.seq}>
+                  <td>{cue.seq}</td>
+                  <td>{new Date(cue.at).toLocaleTimeString('ja-JP', { hour12: false })}</td>
+                  <td>{cue.sourceNodeId}</td>
+                  <td>{cue.cue}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     </main>
   )
