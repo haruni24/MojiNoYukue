@@ -32,6 +32,8 @@ export class SceneRenderer {
   private readonly canvas: HTMLCanvasElement
   private readonly personLayer: HTMLCanvasElement
   private readonly personCtx: CanvasRenderingContext2D
+  private readonly glassLayer: HTMLCanvasElement
+  private readonly glassCtx: CanvasRenderingContext2D
   private readonly maskLayer: HTMLCanvasElement
   private readonly maskCtx: CanvasRenderingContext2D
   private maskImageData: ImageData | null = null
@@ -44,10 +46,12 @@ export class SceneRenderer {
 
     const personLayer = document.createElement('canvas')
     const personCtx = personLayer.getContext('2d')
+    const glassLayer = document.createElement('canvas')
+    const glassCtx = glassLayer.getContext('2d')
     const maskLayer = document.createElement('canvas')
     const maskCtx = maskLayer.getContext('2d')
 
-    if (!personCtx || !maskCtx) {
+    if (!personCtx || !glassCtx || !maskCtx) {
       throw new Error('Offscreen canvas context not available')
     }
 
@@ -55,6 +59,8 @@ export class SceneRenderer {
     this.ctx = context
     this.personLayer = personLayer
     this.personCtx = personCtx
+    this.glassLayer = glassLayer
+    this.glassCtx = glassCtx
     this.maskLayer = maskLayer
     this.maskCtx = maskCtx
   }
@@ -65,6 +71,8 @@ export class SceneRenderer {
       this.canvas.height = height
       this.personLayer.width = width
       this.personLayer.height = height
+      this.glassLayer.width = width
+      this.glassLayer.height = height
     }
   }
 
@@ -75,6 +83,7 @@ export class SceneRenderer {
     this.drawBackground(width, height, state.silhouetteStrength, timestamp)
     this.drawSegmentedPeople(state)
     this.drawParticipantAuras(state, width, height)
+    this.captureGlassLayer(width, height)
     this.drawSpeechTraces(state.traces, state.participants, width, height, timestamp)
     this.drawParticles(state.particles)
     this.drawAmbientHUD(width, height, state)
@@ -178,6 +187,11 @@ export class SceneRenderer {
       ctx.fillStyle = aura
       ctx.fillRect(px - baseRadius, py - baseRadius, baseRadius * 2, baseRadius * 2)
     })
+  }
+
+  private captureGlassLayer(width: number, height: number): void {
+    this.glassCtx.clearRect(0, 0, width, height)
+    this.glassCtx.drawImage(this.canvas, 0, 0, width, height)
   }
 
   private drawParticles(particles: GlyphParticle[]): void {
@@ -295,96 +309,111 @@ export class SceneRenderer {
     placements
       .sort((a, b) => b.trace.life - a.trace.life)
       .forEach((placement) => {
-        const radius = 22
         const contentHeight = placement.lines.length * placement.lineHeight
         const textStartY = placement.boxY + placement.boxHeight * 0.5 - contentHeight * 0.5 + placement.lineHeight * 0.5
+        const anchorX = placement.trace.anchor.x * width
+        const anchorY = placement.trace.anchor.y * height
 
         ctx.save()
         ctx.globalAlpha = placement.alpha
+        this.traceBubblePath(
+          placement.boxX,
+          placement.boxY,
+          placement.boxWidth,
+          placement.boxHeight,
+          placement.tailPoint.x,
+          placement.tailPoint.y,
+          anchorX,
+          anchorY,
+        )
+        ctx.clip()
+        ctx.filter = 'blur(12px) saturate(1.15) brightness(1.05)'
+        ctx.drawImage(this.glassLayer, 0, 0, width, height)
+        ctx.filter = 'none'
+        ctx.fillStyle = 'rgba(244, 249, 255, 0.12)'
+        ctx.fillRect(placement.boxX - 2, placement.boxY - 2, placement.boxWidth + 4, placement.boxHeight + 4)
 
-        ctx.shadowBlur = 10
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.22)'
         const shell = ctx.createLinearGradient(
           placement.boxX,
           placement.boxY,
           placement.boxX,
           placement.boxY + placement.boxHeight,
         )
-        shell.addColorStop(0, 'rgba(255, 255, 255, 0.34)')
-        shell.addColorStop(0.4, 'rgba(226, 236, 248, 0.24)')
-        shell.addColorStop(1, 'rgba(182, 194, 210, 0.18)')
+        shell.addColorStop(0, 'rgba(255, 255, 255, 0.22)')
+        shell.addColorStop(0.35, 'rgba(232, 240, 250, 0.12)')
+        shell.addColorStop(1, 'rgba(185, 198, 216, 0.14)')
         ctx.fillStyle = shell
-        this.fillRoundedRect(placement.boxX, placement.boxY, placement.boxWidth, placement.boxHeight, radius)
-        this.fillBubbleTail(placement.tailPoint.x, placement.tailPoint.y, placement.trace.anchor.x * width, placement.trace.anchor.y * height)
+        ctx.fillRect(placement.boxX, placement.boxY, placement.boxWidth, placement.boxHeight)
+        ctx.restore()
 
-        ctx.shadowBlur = 0
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.42)'
-        ctx.lineWidth = 1
-        this.strokeRoundedRect(
-          placement.boxX + 0.5,
-          placement.boxY + 0.5,
-          placement.boxWidth - 1,
-          placement.boxHeight - 1,
-          radius - 0.5,
-        )
-        this.strokeBubbleTail(
+        ctx.save()
+        ctx.globalAlpha = placement.alpha
+        ctx.shadowBlur = 8
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.18)'
+        this.traceBubblePath(
+          placement.boxX,
+          placement.boxY,
+          placement.boxWidth,
+          placement.boxHeight,
           placement.tailPoint.x,
           placement.tailPoint.y,
-          placement.trace.anchor.x * width,
-          placement.trace.anchor.y * height,
+          anchorX,
+          anchorY,
         )
-
-        ctx.strokeStyle = 'rgba(120, 146, 178, 0.18)'
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.04)'
+        ctx.fill()
+        ctx.shadowBlur = 0
+        this.traceBubblePath(
+          placement.boxX,
+          placement.boxY,
+          placement.boxWidth,
+          placement.boxHeight,
+          placement.tailPoint.x,
+          placement.tailPoint.y,
+          anchorX,
+          anchorY,
+        )
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'
         ctx.lineWidth = 1
-        this.strokeRoundedRect(
-          placement.boxX + 2,
-          placement.boxY + 2,
-          placement.boxWidth - 4,
-          placement.boxHeight - 4,
-          radius - 2,
+        ctx.stroke()
+        this.traceBubblePath(
+          placement.boxX + 1.5,
+          placement.boxY + 1.5,
+          placement.boxWidth - 3,
+          placement.boxHeight - 3,
+          placement.tailPoint.x,
+          placement.tailPoint.y,
+          anchorX,
+          anchorY,
         )
+        ctx.strokeStyle = 'rgba(144, 170, 205, 0.18)'
+        ctx.lineWidth = 1
+        ctx.stroke()
 
         const highlight = ctx.createLinearGradient(
           placement.boxX,
           placement.boxY,
-          placement.boxX + placement.boxWidth * 0.7,
-          placement.boxY + placement.boxHeight * 0.5,
+          placement.boxX + placement.boxWidth * 0.65,
+          placement.boxY + placement.boxHeight * 0.45,
         )
-        highlight.addColorStop(0, 'rgba(255, 255, 255, 0.24)')
-        highlight.addColorStop(0.46, 'rgba(255, 255, 255, 0.07)')
+        highlight.addColorStop(0, 'rgba(255, 255, 255, 0.26)')
+        highlight.addColorStop(0.52, 'rgba(255, 255, 255, 0.08)')
         highlight.addColorStop(1, 'rgba(255, 255, 255, 0)')
+        ctx.save()
+        this.traceBubblePath(
+          placement.boxX + 3,
+          placement.boxY + 3,
+          placement.boxWidth - 6,
+          placement.boxHeight - 6,
+          placement.tailPoint.x,
+          placement.tailPoint.y,
+          anchorX,
+          anchorY,
+        )
+        ctx.clip()
         ctx.fillStyle = highlight
-        this.fillRoundedRect(
-          placement.boxX + 5,
-          placement.boxY + 5,
-          placement.boxWidth - 10,
-          Math.max(16, placement.boxHeight * 0.38),
-          radius - 6,
-        )
-
-        const lowerTint = ctx.createLinearGradient(
-          placement.boxX,
-          placement.boxY + placement.boxHeight * 0.55,
-          placement.boxX,
-          placement.boxY + placement.boxHeight,
-        )
-        lowerTint.addColorStop(0, 'rgba(186, 204, 232, 0)')
-        lowerTint.addColorStop(1, 'rgba(186, 204, 232, 0.12)')
-        ctx.fillStyle = lowerTint
-        this.fillRoundedRect(
-          placement.boxX + 6,
-          placement.boxY + placement.boxHeight * 0.42,
-          placement.boxWidth - 12,
-          placement.boxHeight * 0.5 - 6,
-          radius - 7,
-        )
-
-        ctx.beginPath()
-        ctx.strokeStyle = 'rgba(164, 182, 208, 0.18)'
-        ctx.lineWidth = 1
-        ctx.moveTo(placement.boxX + 18, placement.boxY + placement.boxHeight - 10)
-        ctx.lineTo(placement.boxX + placement.boxWidth - 18, placement.boxY + placement.boxHeight - 10)
-        ctx.stroke()
+        ctx.fillRect(placement.boxX, placement.boxY, placement.boxWidth, placement.boxHeight * 0.5)
+        ctx.restore()
 
         ctx.font = "400 20px 'Noto Sans JP', 'Hiragino Sans', sans-serif"
         ctx.textAlign = 'center'
@@ -554,30 +583,6 @@ export class SceneRenderer {
     return overlapX * overlapY
   }
 
-  private fillRoundedRect(x: number, y: number, width: number, height: number, radius: number): void {
-    const ctx = this.ctx
-    ctx.beginPath()
-    ctx.moveTo(x + radius, y)
-    ctx.arcTo(x + width, y, x + width, y + height, radius)
-    ctx.arcTo(x + width, y + height, x, y + height, radius)
-    ctx.arcTo(x, y + height, x, y, radius)
-    ctx.arcTo(x, y, x + width, y, radius)
-    ctx.closePath()
-    ctx.fill()
-  }
-
-  private strokeRoundedRect(x: number, y: number, width: number, height: number, radius: number): void {
-    const ctx = this.ctx
-    ctx.beginPath()
-    ctx.moveTo(x + radius, y)
-    ctx.arcTo(x + width, y, x + width, y + height, radius)
-    ctx.arcTo(x + width, y + height, x, y + height, radius)
-    ctx.arcTo(x, y + height, x, y, radius)
-    ctx.arcTo(x, y, x + width, y, radius)
-    ctx.closePath()
-    ctx.stroke()
-  }
-
   private computeBubbleTailPoint(
     boxX: number,
     boxY: number,
@@ -607,46 +612,46 @@ export class SceneRenderer {
     return { x: nearestX, y: boxY + boxHeight }
   }
 
-  private fillBubbleTail(startX: number, startY: number, anchorX: number, anchorY: number): void {
+  private traceBubblePath(
+    boxX: number,
+    boxY: number,
+    boxWidth: number,
+    boxHeight: number,
+    tailStartX: number,
+    tailStartY: number,
+    anchorX: number,
+    anchorY: number,
+  ): void {
     const ctx = this.ctx
-    const dx = anchorX - startX
-    const dy = anchorY - startY
+    const radius = 22
+    const dx = anchorX - tailStartX
+    const dy = anchorY - tailStartY
     const length = Math.max(1, Math.hypot(dx, dy))
     const nx = dx / length
     const ny = dy / length
     const px = -ny
     const py = nx
-    const base = 7
+    const base = 6
     const tipX = anchorX - nx * 8
     const tipY = anchorY - ny * 8
 
     ctx.beginPath()
-    ctx.moveTo(startX + px * base, startY + py * base)
-    ctx.quadraticCurveTo(startX + dx * 0.35, startY + dy * 0.35, tipX, tipY)
-    ctx.quadraticCurveTo(startX + dx * 0.22, startY + dy * 0.22, startX - px * base, startY - py * base)
+    ctx.moveTo(boxX + radius, boxY)
+    ctx.arcTo(boxX + boxWidth, boxY, boxX + boxWidth, boxY + boxHeight, radius)
+    ctx.arcTo(boxX + boxWidth, boxY + boxHeight, boxX, boxY + boxHeight, radius)
+    ctx.arcTo(boxX, boxY + boxHeight, boxX, boxY, radius)
+    ctx.arcTo(boxX, boxY, boxX + boxWidth, boxY, radius)
     ctx.closePath()
-    ctx.fill()
-  }
 
-  private strokeBubbleTail(startX: number, startY: number, anchorX: number, anchorY: number): void {
-    const ctx = this.ctx
-    const dx = anchorX - startX
-    const dy = anchorY - startY
-    const length = Math.max(1, Math.hypot(dx, dy))
-    const nx = dx / length
-    const ny = dy / length
-    const px = -ny
-    const py = nx
-    const base = 7
-    const tipX = anchorX - nx * 8
-    const tipY = anchorY - ny * 8
-
-    ctx.beginPath()
-    ctx.moveTo(startX + px * base, startY + py * base)
-    ctx.quadraticCurveTo(startX + dx * 0.35, startY + dy * 0.35, tipX, tipY)
-    ctx.quadraticCurveTo(startX + dx * 0.22, startY + dy * 0.22, startX - px * base, startY - py * base)
+    ctx.moveTo(tailStartX + px * base, tailStartY + py * base)
+    ctx.quadraticCurveTo(tailStartX + dx * 0.34, tailStartY + dy * 0.34, tipX, tipY)
+    ctx.quadraticCurveTo(
+      tailStartX + dx * 0.18,
+      tailStartY + dy * 0.18,
+      tailStartX - px * base,
+      tailStartY - py * base,
+    )
     ctx.closePath()
-    ctx.stroke()
   }
 
   private easeOutBack(x: number): number {

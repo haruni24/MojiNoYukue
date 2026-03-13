@@ -322,7 +322,7 @@ function App() {
       {showDebugUi && (
         <section className="control-panel">
           <p className="title-ja">声が文字として誕生する</p>
-          <h1 className="title-main">声生</h1>
+          <h1 className="title-main">声</h1>
           <p className="status">{message}</p>
           <p className="runtime">
             {runtimeMinutes.toString().padStart(2, '0')}:{runtimeSeconds
