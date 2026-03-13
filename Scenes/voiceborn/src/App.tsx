@@ -35,6 +35,7 @@ function App() {
   const [status, setStatus] = useState<RuntimeStatus>('idle')
   const [message, setMessage] = useState('起動待機中')
   const [runningTimeMs, setRunningTimeMs] = useState(0)
+  const [showDebugUi, setShowDebugUi] = useState(true)
   const statusRef = useRef<RuntimeStatus>('idle')
 
   const resourcesRef = useRef<{
@@ -60,6 +61,20 @@ function App() {
   useEffect(() => {
     statusRef.current = status
   }, [status])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.code !== 'KeyU' || event.repeat) {
+        return
+      }
+      setShowDebugUi((current) => !current)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -304,29 +319,31 @@ function App() {
 
       <div className="overlay-frame" aria-hidden="true" />
 
-      <section className="control-panel">
-        <p className="title-ja">声が文字として誕生する</p>
-        <h1 className="title-main">声生</h1>
-        <p className="status">{message}</p>
-        <p className="runtime">
-          {runtimeMinutes.toString().padStart(2, '0')}:{runtimeSeconds
-            .toString()
-            .padStart(2, '0')}
-        </p>
+      {showDebugUi && (
+        <section className="control-panel">
+          <p className="title-ja">声が文字として誕生する</p>
+          <h1 className="title-main">声生</h1>
+          <p className="status">{message}</p>
+          <p className="runtime">
+            {runtimeMinutes.toString().padStart(2, '0')}:{runtimeSeconds
+              .toString()
+              .padStart(2, '0')}
+          </p>
 
-        <div className="actions">
-          <button type="button" onClick={() => void start()} disabled={status === 'booting'}>
-            START
-          </button>
-          <button type="button" onClick={stop} disabled={status !== 'running' && status !== 'booting'}>
-            STOP
-          </button>
-        </div>
+          <div className="actions">
+            <button type="button" onClick={() => void start()} disabled={status === 'booting'}>
+              START
+            </button>
+            <button type="button" onClick={stop} disabled={status !== 'running' && status !== 'booting'}>
+              STOP
+            </button>
+          </div>
 
-        {!hasApiKey && (
-          <p className="warning">VITE_OPENAI_API_KEY が未設定のため文字化演出は無効です。</p>
-        )}
-      </section>
+          {!hasApiKey && (
+            <p className="warning">VITE_OPENAI_API_KEY が未設定のため文字化演出は無効です。</p>
+          )}
+        </section>
+      )}
     </div>
   )
 }

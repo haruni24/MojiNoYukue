@@ -57,6 +57,7 @@ function App() {
     latestParticleCount: number
     lastMetricsSentAt: number
     recentExternalTexts: Map<string, number>
+    pendingExternalTexts: string[]
     busStatusTimerId: number | null
   }>({
     animationId: null,
@@ -72,6 +73,7 @@ function App() {
     latestParticleCount: 0,
     lastMetricsSentAt: 0,
     recentExternalTexts: new Map<string, number>(),
+    pendingExternalTexts: [],
     busStatusTimerId: null,
   })
 
@@ -105,6 +107,7 @@ function App() {
     resources.latestParticleCount = 0
     resources.lastMetricsSentAt = 0
     resources.recentExternalTexts.clear()
+    resources.pendingExternalTexts = []
     setBusConnected(false)
 
     if (videoRef.current?.srcObject) {
@@ -175,26 +178,6 @@ function App() {
     const renderer = new SceneRenderer(canvas, {
       showHands: ENABLE_HANDS,
     })
-    const bus = new SceneBusClient({
-      enabled: BUS_ENABLED,
-      wsUrl: BUS_URL,
-      authToken: BUS_TOKEN,
-      nodeId: BUS_NODE_ID,
-      sourceApp: 'voice2light',
-      room: BUS_ROOM,
-      groups: BUS_GROUPS,
-    })
-    bus.onError((errorMessage) => {
-      console.warn('[scene-bus][voice2light]', errorMessage)
-      pushReceiveLog('scene-bus', 'server.error', errorMessage)
-      setMessage('scene-bus 未接続: ローカル中継サーバを起動してください')
-    })
-    bus.onEvent((envelope) => {
-      setBusConnected(bus.isConnected())
-      handleRemoteEnvelope(envelope)
-    })
-    bus.start()
-
     const emotionAnalyzer = new OpenAIEmotionAnalyzer({
       apiKey: OPENAI_API_KEY,
       model: OPENAI_MODEL,
@@ -228,6 +211,25 @@ function App() {
       director.enqueueText(text)
     })
     director.start()
+
+    const bus = new SceneBusClient({
+      enabled: BUS_ENABLED,
+      wsUrl: BUS_URL,
+      authToken: BUS_TOKEN,
+      nodeId: BUS_NODE_ID,
+      sourceApp: 'voice2light',
+      room: BUS_ROOM,
+      groups: BUS_GROUPS,
+    })
+    bus.onError((errorMessage) => {
+      console.warn('[scene-bus][voice2light]', errorMessage)
+      pushReceiveLog('scene-bus', 'server.error', errorMessage)
+      setMessage('scene-bus 未接続: ローカル中継サーバを起動してください')
+    })
+    bus.onEvent((envelope) => {
+      setBusConnected(bus.isConnected())
+      handleRemoteEnvelope(envelope)
+    })
 
     const frameInterval = 1000 / TARGET_FPS
     const visionInterval = Math.max(frameInterval, 1000 / 15)
@@ -308,10 +310,14 @@ function App() {
       latestParticleCount: 0,
       lastMetricsSentAt: 0,
       recentExternalTexts: new Map<string, number>(),
+      pendingExternalTexts: [],
       busStatusTimerId: window.setInterval(() => {
         setBusConnected(bus.isConnected())
       }, 500),
     }
+
+    flushPendingExternalTexts()
+    bus.start()
 
     bus.publish(
       'scene.cue',
@@ -351,9 +357,7 @@ function App() {
       const text = payload?.text?.trim()
       if (text && shouldAcceptExternalText(envelope.sourceNodeId, text)) {
         pushReceiveLog(envelope.sourceNodeId, envelope.kind, text)
-        resourcesRef.current.feed?.addLoopText(text)
-        resourcesRef.current.feed?.enqueueText(text)
-        resourcesRef.current.director?.enqueueText(text)
+        routeExternalText(text)
       }
       return
     }
@@ -396,6 +400,39 @@ function App() {
       return true
     }
     return now - prev > 1500
+  }
+
+  const routeExternalText = (text: string): void => {
+    const active = resourcesRef.current
+    const trimmed = text.trim()
+    if (!trimmed) {
+      return
+    }
+
+    active.feed?.addLoopText(trimmed)
+
+    if (!active.director) {
+      active.pendingExternalTexts.push(trimmed)
+      if (active.pendingExternalTexts.length > 48) {
+        active.pendingExternalTexts.shift()
+      }
+      return
+    }
+
+    active.director.enqueueText(trimmed)
+  }
+
+  const flushPendingExternalTexts = (): void => {
+    const active = resourcesRef.current
+    if (!active.director || active.pendingExternalTexts.length === 0) {
+      return
+    }
+
+    const queuedTexts = [...active.pendingExternalTexts]
+    active.pendingExternalTexts = []
+    queuedTexts.forEach((text) => {
+      active.director?.enqueueText(text)
+    })
   }
 
   const pushReceiveLog = (source: string, kind: string, text: string): void => {

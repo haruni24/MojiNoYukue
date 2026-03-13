@@ -134,6 +134,7 @@ export class OpenAIEmotionAnalyzer implements EmotionAnalyzer {
           },
         }),
       })
+      clearTimeout(timerId)
 
       if (!response.ok) {
         throw new Error(`OpenAI emotion request failed (${response.status})`)
