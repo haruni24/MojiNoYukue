@@ -1,4 +1,4 @@
-import type { GlyphParticle, SceneState, SpeechTrace } from '../types/scene'
+import type { GlyphParticle, ParticipantTrack, SceneState, SpeechTrace } from '../types/scene'
 
 /*  ──────────────────────────────────────────
     Voiceborn — Scene Renderer
@@ -25,10 +25,6 @@ const PALETTE = {
   // 参加者オーラ — 暖色系に統一
   auraPrimary: 'rgba(196, 169, 106, 0.18)',
   auraSecondary: 'rgba(180, 175, 165, 0.1)',
-  traceCore: 'rgba(232, 228, 223, 0.92)',
-  traceWarm: 'rgba(214, 188, 130, 0.7)',
-  traceLine: 'rgba(214, 188, 130, 0.18)',
-  traceMist: 'rgba(232, 228, 223, 0.08)',
 } as const
 
 export class SceneRenderer {
@@ -79,7 +75,7 @@ export class SceneRenderer {
     this.drawBackground(width, height, state.silhouetteStrength, timestamp)
     this.drawSegmentedPeople(state)
     this.drawParticipantAuras(state, width, height)
-    this.drawSpeechTraces(state.traces, width, height, timestamp)
+    this.drawSpeechTraces(state.traces, state.participants, width, height, timestamp)
     this.drawParticles(state.particles)
     this.drawAmbientHUD(width, height, state)
 
@@ -221,10 +217,31 @@ export class SceneRenderer {
     })
   }
 
-  private drawSpeechTraces(traces: SpeechTrace[], width: number, height: number, timestamp: number): void {
+  private drawSpeechTraces(
+    traces: SpeechTrace[],
+    participants: ParticipantTrack[],
+    width: number,
+    height: number,
+    timestamp: number,
+  ): void {
     const ctx = this.ctx
+    const exclusionRects = this.buildParticipantExclusionRects(participants, width, height)
+    const occupiedRects: Array<{ x: number; y: number; width: number; height: number }> = []
+    const placements: Array<{
+      trace: SpeechTrace
+      alpha: number
+      boxX: number
+      boxY: number
+      boxWidth: number
+      boxHeight: number
+      lines: string[]
+      lineHeight: number
+      tailPoint: { x: number; y: number }
+    }> = []
 
-    traces.forEach((trace) => {
+    const sortedTraces = [...traces].sort((a, b) => a.life - b.life)
+
+    sortedTraces.forEach((trace) => {
       if (!trace.text) {
         return
       }
@@ -241,63 +258,148 @@ export class SceneRenderer {
       const anchorY = trace.anchor.y * height
       const floatX = trace.offset.x + Math.sin(timestamp * 0.0008 + trace.seed) * 2
       const floatY = trace.offset.y + Math.cos(timestamp * 0.001 + trace.seed) * 2
-      const gap = 18
-      const margin = 24
-      const preferHorizontal = anchorX < width * 0.24 || anchorX > width * 0.76
-      const placeRight = anchorX < width * 0.5
-      const hasTopRoom = anchorY - trace.height - gap > margin
-      const placeBelow = !hasTopRoom && anchorY < height * 0.58
-      let boxX = anchorX - trace.width * 0.5
-      let boxY = placeBelow ? anchorY + gap : anchorY - trace.height - gap
+      const layout = this.layoutTraceText(trace.text, Math.min(width * 0.42, trace.width - 42))
+      const boxWidth = Math.max(240, Math.min(width * 0.46, layout.maxLineWidth + 52))
+      const boxHeight = Math.max(trace.height, layout.lines.length * layout.lineHeight + 34)
+      const placement = this.resolveBubblePlacement(
+        anchorX,
+        anchorY,
+        boxWidth,
+        boxHeight,
+        width,
+        height,
+        exclusionRects,
+        occupiedRects,
+        trace.speakerId,
+      )
+      const slideX = (placement.slideX + floatX) * (1 - enter)
+      const slideY = (placement.slideY + floatY) * (1 - enter)
+      const boxX = placement.x + slideX
+      const boxY = placement.y + slideY
 
-      if (preferHorizontal) {
-        boxX = placeRight ? anchorX + gap : anchorX - trace.width - gap
-        boxY = anchorY - trace.height * 0.5
-      }
-
-      boxX = Math.min(width - trace.width - margin, Math.max(margin, boxX + floatX))
-      boxY = Math.min(height - trace.height - margin, Math.max(margin, boxY + floatY))
-
-      const slideX = preferHorizontal ? (1 - enter) * (placeRight ? 20 : -20) : 0
-      const slideY = preferHorizontal ? 0 : (1 - enter) * (placeBelow ? -16 : 16)
-      boxX += slideX
-      boxY += slideY
-
-      const radius = 22
-      const lines = this.wrapTraceText(trace.text, trace.width - 44)
-      const contentHeight = lines.length * 22
-      const textStartY = boxY + trace.height * 0.5 - contentHeight * 0.5 + 2
-      const tailPoint = this.computeBubbleTailPoint(boxX, boxY, trace.width, trace.height, anchorX, anchorY)
-
-      ctx.save()
-      ctx.globalAlpha = alpha
-
-      ctx.shadowBlur = 24
-      ctx.shadowColor = `rgba(0, 0, 0, ${0.18 * alpha})`
-      ctx.fillStyle = `rgba(252, 252, 248, ${0.9 * alpha})`
-      this.fillRoundedRect(boxX, boxY, trace.width, trace.height, radius)
-      this.fillBubbleTail(tailPoint.x, tailPoint.y, anchorX, anchorY)
-
-      ctx.shadowBlur = 0
-      ctx.strokeStyle = `rgba(0, 0, 0, ${0.08 * alpha})`
-      ctx.lineWidth = 1
-      this.strokeRoundedRect(boxX + 0.5, boxY + 0.5, trace.width - 1, trace.height - 1, radius - 0.5)
-      this.strokeBubbleTail(tailPoint.x, tailPoint.y, anchorX, anchorY)
-
-      ctx.font = "400 20px 'Noto Sans JP', 'Hiragino Sans', sans-serif"
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillStyle = `rgba(24, 24, 28, ${0.92 * alpha})`
-      lines.forEach((line, lineIndex) => {
-        const lineY = textStartY + lineIndex * 22
-        ctx.fillText(line, boxX + trace.width * 0.5, lineY)
+      const tailPoint = this.computeBubbleTailPoint(boxX, boxY, boxWidth, boxHeight, anchorX, anchorY)
+      placements.push({
+        trace,
+        alpha,
+        boxX,
+        boxY,
+        boxWidth,
+        boxHeight,
+        lines: layout.lines,
+        lineHeight: layout.lineHeight,
+        tailPoint,
       })
-
-      ctx.restore()
+      occupiedRects.push({ x: boxX, y: boxY, width: boxWidth, height: boxHeight })
     })
+
+    placements
+      .sort((a, b) => b.trace.life - a.trace.life)
+      .forEach((placement) => {
+        const radius = 22
+        const contentHeight = placement.lines.length * placement.lineHeight
+        const textStartY = placement.boxY + placement.boxHeight * 0.5 - contentHeight * 0.5 + placement.lineHeight * 0.5
+
+        ctx.save()
+        ctx.globalAlpha = placement.alpha
+
+        ctx.shadowBlur = 10
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.22)'
+        const shell = ctx.createLinearGradient(
+          placement.boxX,
+          placement.boxY,
+          placement.boxX,
+          placement.boxY + placement.boxHeight,
+        )
+        shell.addColorStop(0, 'rgba(255, 255, 255, 0.34)')
+        shell.addColorStop(0.4, 'rgba(226, 236, 248, 0.24)')
+        shell.addColorStop(1, 'rgba(182, 194, 210, 0.18)')
+        ctx.fillStyle = shell
+        this.fillRoundedRect(placement.boxX, placement.boxY, placement.boxWidth, placement.boxHeight, radius)
+        this.fillBubbleTail(placement.tailPoint.x, placement.tailPoint.y, placement.trace.anchor.x * width, placement.trace.anchor.y * height)
+
+        ctx.shadowBlur = 0
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.42)'
+        ctx.lineWidth = 1
+        this.strokeRoundedRect(
+          placement.boxX + 0.5,
+          placement.boxY + 0.5,
+          placement.boxWidth - 1,
+          placement.boxHeight - 1,
+          radius - 0.5,
+        )
+        this.strokeBubbleTail(
+          placement.tailPoint.x,
+          placement.tailPoint.y,
+          placement.trace.anchor.x * width,
+          placement.trace.anchor.y * height,
+        )
+
+        ctx.strokeStyle = 'rgba(120, 146, 178, 0.18)'
+        ctx.lineWidth = 1
+        this.strokeRoundedRect(
+          placement.boxX + 2,
+          placement.boxY + 2,
+          placement.boxWidth - 4,
+          placement.boxHeight - 4,
+          radius - 2,
+        )
+
+        const highlight = ctx.createLinearGradient(
+          placement.boxX,
+          placement.boxY,
+          placement.boxX + placement.boxWidth * 0.7,
+          placement.boxY + placement.boxHeight * 0.5,
+        )
+        highlight.addColorStop(0, 'rgba(255, 255, 255, 0.24)')
+        highlight.addColorStop(0.46, 'rgba(255, 255, 255, 0.07)')
+        highlight.addColorStop(1, 'rgba(255, 255, 255, 0)')
+        ctx.fillStyle = highlight
+        this.fillRoundedRect(
+          placement.boxX + 5,
+          placement.boxY + 5,
+          placement.boxWidth - 10,
+          Math.max(16, placement.boxHeight * 0.38),
+          radius - 6,
+        )
+
+        const lowerTint = ctx.createLinearGradient(
+          placement.boxX,
+          placement.boxY + placement.boxHeight * 0.55,
+          placement.boxX,
+          placement.boxY + placement.boxHeight,
+        )
+        lowerTint.addColorStop(0, 'rgba(186, 204, 232, 0)')
+        lowerTint.addColorStop(1, 'rgba(186, 204, 232, 0.12)')
+        ctx.fillStyle = lowerTint
+        this.fillRoundedRect(
+          placement.boxX + 6,
+          placement.boxY + placement.boxHeight * 0.42,
+          placement.boxWidth - 12,
+          placement.boxHeight * 0.5 - 6,
+          radius - 7,
+        )
+
+        ctx.beginPath()
+        ctx.strokeStyle = 'rgba(164, 182, 208, 0.18)'
+        ctx.lineWidth = 1
+        ctx.moveTo(placement.boxX + 18, placement.boxY + placement.boxHeight - 10)
+        ctx.lineTo(placement.boxX + placement.boxWidth - 18, placement.boxY + placement.boxHeight - 10)
+        ctx.stroke()
+
+        ctx.font = "400 20px 'Noto Sans JP', 'Hiragino Sans', sans-serif"
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillStyle = 'rgba(18, 22, 28, 0.96)'
+        placement.lines.forEach((line, lineIndex) => {
+          const lineY = textStartY + lineIndex * placement.lineHeight
+          ctx.fillText(line, placement.boxX + placement.boxWidth * 0.5, lineY)
+        })
+
+        ctx.restore()
+      })
   }
 
-  private wrapTraceText(text: string, maxWidth: number): string[] {
+  private layoutTraceText(text: string, maxWidth: number): { lines: string[]; maxLineWidth: number; lineHeight: number } {
     const ctx = this.ctx
     ctx.font = "400 20px 'Noto Sans JP', 'Hiragino Sans', sans-serif"
     const chars = Array.from(text)
@@ -318,7 +420,138 @@ export class SceneRenderer {
       lines.push(current)
     }
 
-    return lines.slice(0, 3)
+    const maxLineWidth = lines.reduce((max, line) => Math.max(max, ctx.measureText(line).width), 0)
+
+    return {
+      lines,
+      maxLineWidth,
+      lineHeight: 24,
+    }
+  }
+
+  private buildParticipantExclusionRects(
+    participants: ParticipantTrack[],
+    width: number,
+    height: number,
+  ): Array<{ id: string; x: number; y: number; width: number; height: number }> {
+    return participants.map((participant) => {
+      if (participant.landmarks.length === 0) {
+        const x = participant.centroid.x * width
+        const y = participant.centroid.y * height
+        return {
+          id: participant.id,
+          x: x - 90,
+          y: y - 130,
+          width: 180,
+          height: 260,
+        }
+      }
+
+      let minX = Infinity
+      let minY = Infinity
+      let maxX = -Infinity
+      let maxY = -Infinity
+
+      participant.landmarks.forEach((landmark) => {
+        if (landmark.visibility < 0.2) {
+          return
+        }
+        const px = landmark.x * width
+        const py = landmark.y * height
+        minX = Math.min(minX, px)
+        minY = Math.min(minY, py)
+        maxX = Math.max(maxX, px)
+        maxY = Math.max(maxY, py)
+      })
+
+      if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
+        const x = participant.centroid.x * width
+        const y = participant.centroid.y * height
+        return {
+          id: participant.id,
+          x: x - 90,
+          y: y - 130,
+          width: 180,
+          height: 260,
+        }
+      }
+
+      return {
+        id: participant.id,
+        x: minX - 28,
+        y: minY - 28,
+        width: maxX - minX + 56,
+        height: maxY - minY + 56,
+      }
+    })
+  }
+
+  private resolveBubblePlacement(
+    anchorX: number,
+    anchorY: number,
+    bubbleWidth: number,
+    bubbleHeight: number,
+    width: number,
+    height: number,
+    exclusionRects: Array<{ id: string; x: number; y: number; width: number; height: number }>,
+    occupiedRects: Array<{ x: number; y: number; width: number; height: number }>,
+    speakerId: string | null,
+  ): { x: number; y: number; slideX: number; slideY: number } {
+    const margin = 24
+    const gap = 20
+    const candidates = [
+      { x: anchorX - bubbleWidth * 0.5, y: anchorY - bubbleHeight - gap, slideX: 0, slideY: 14 },
+      { x: anchorX - bubbleWidth * 0.5, y: anchorY + gap, slideX: 0, slideY: -14 },
+      { x: anchorX + gap, y: anchorY - bubbleHeight * 0.5, slideX: -18, slideY: 0 },
+      { x: anchorX - bubbleWidth - gap, y: anchorY - bubbleHeight * 0.5, slideX: 18, slideY: 0 },
+      { x: anchorX + gap, y: anchorY - bubbleHeight - 10, slideX: -16, slideY: 12 },
+      { x: anchorX - bubbleWidth - gap, y: anchorY - bubbleHeight - 10, slideX: 16, slideY: 12 },
+      { x: anchorX + gap, y: anchorY + 8, slideX: -16, slideY: -12 },
+      { x: anchorX - bubbleWidth - gap, y: anchorY + 8, slideX: 16, slideY: -12 },
+    ]
+
+    const scored = candidates.map((candidate, index) => {
+      const x = Math.min(width - bubbleWidth - margin, Math.max(margin, candidate.x))
+      const y = Math.min(height - bubbleHeight - margin, Math.max(margin, candidate.y))
+      const rect = { x, y, width: bubbleWidth, height: bubbleHeight }
+      let score = Math.hypot(x + bubbleWidth * 0.5 - anchorX, y + bubbleHeight * 0.5 - anchorY) * 0.08 + index * 3
+
+      exclusionRects.forEach((zone) => {
+        const overlap = this.computeRectOverlap(rect, zone)
+        if (overlap <= 0) {
+          return
+        }
+        score += overlap * (zone.id === speakerId ? 9 : 5)
+      })
+
+      occupiedRects.forEach((occupied) => {
+        const overlap = this.computeRectOverlap(rect, occupied)
+        if (overlap <= 0) {
+          return
+        }
+        score += overlap * 14
+      })
+
+      return {
+        x,
+        y,
+        slideX: candidate.slideX,
+        slideY: candidate.slideY,
+        score,
+      }
+    })
+
+    scored.sort((a, b) => a.score - b.score)
+    return scored[0]
+  }
+
+  private computeRectOverlap(
+    a: { x: number; y: number; width: number; height: number },
+    b: { x: number; y: number; width: number; height: number },
+  ): number {
+    const overlapX = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x))
+    const overlapY = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
+    return overlapX * overlapY
   }
 
   private fillRoundedRect(x: number, y: number, width: number, height: number, radius: number): void {

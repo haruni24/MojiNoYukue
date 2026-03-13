@@ -19,6 +19,7 @@ export class AudioEngine {
   private readonly threshold: number
   private readonly minSpeechMs: number
   private readonly maxSilenceMs: number
+  private readonly speechWarmupMs: number
 
   private onChunk: ChunkHandler | null = null
   private onMetrics: MetricsHandler | null = null
@@ -26,8 +27,11 @@ export class AudioEngine {
   private rafId: number | null = null
   private speaking = false
   private speechStart = 0
-  private lastSpeechTimestamp = 0
   private speakingMs = 0
+  private speechCandidateStart = 0
+  private silenceStart = 0
+  private smoothedRms = 0
+  private noiseFloor = 0.008
 
   private recorder: MediaRecorder | null = null
   private chunks: Blob[] = []
@@ -42,9 +46,10 @@ export class AudioEngine {
     this.source.connect(this.analyser)
 
     this.dataArray = new Uint8Array(this.analyser.fftSize)
-    this.threshold = options?.threshold ?? 0.045
-    this.minSpeechMs = options?.minSpeechMs ?? 700
-    this.maxSilenceMs = options?.maxSilenceMs ?? 550
+    this.threshold = options?.threshold ?? 0.038
+    this.minSpeechMs = options?.minSpeechMs ?? 1100
+    this.maxSilenceMs = options?.maxSilenceMs ?? 950
+    this.speechWarmupMs = 140
   }
 
   static async create(options?: AudioEngineOptions): Promise<AudioEngine> {
@@ -105,32 +110,63 @@ export class AudioEngine {
       sumSquares += normalized * normalized
     }
     const rms = Math.sqrt(sumSquares / this.dataArray.length)
+    this.smoothedRms = this.smoothedRms * 0.84 + rms * 0.16
 
-    if (rms >= this.threshold) {
+    if (!this.speaking || this.smoothedRms < this.threshold * 1.2) {
+      this.noiseFloor = this.noiseFloor * 0.985 + this.smoothedRms * 0.015
+    }
+
+    const startThreshold = Math.max(this.threshold, this.noiseFloor * 2.4 + 0.012)
+    const endThreshold = Math.max(this.threshold * 0.72, this.noiseFloor * 1.8 + 0.007)
+
+    if (this.smoothedRms >= startThreshold) {
       if (!this.speaking) {
-        this.speaking = true
-        this.speechStart = now
-        this.startRecorder()
+        if (this.speechCandidateStart === 0) {
+          this.speechCandidateStart = now
+        }
+        if (now - this.speechCandidateStart >= this.speechWarmupMs) {
+          this.speaking = true
+          this.speechStart = this.speechCandidateStart
+          this.silenceStart = 0
+          this.startRecorder()
+        }
+      } else {
+        this.silenceStart = 0
+        this.speakingMs = now - this.speechStart
+        this.meterSamples.push(this.smoothedRms)
       }
-      this.lastSpeechTimestamp = now
-      this.speakingMs = now - this.speechStart
-      this.meterSamples.push(rms)
-    } else if (this.speaking) {
-      const silenceMs = now - this.lastSpeechTimestamp
-      if (silenceMs >= this.maxSilenceMs) {
-        const durationMs = now - this.speechStart
-        this.speaking = false
-        this.speakingMs = 0
-        if (durationMs >= this.minSpeechMs) {
-          this.stopRecorder(durationMs)
+    } else {
+      this.speechCandidateStart = 0
+      if (this.speaking) {
+        if (this.smoothedRms <= endThreshold) {
+          if (this.silenceStart === 0) {
+            this.silenceStart = now
+          }
         } else {
-          this.abortRecorder()
+          this.silenceStart = 0
+          this.meterSamples.push(this.smoothedRms)
+        }
+
+        const silenceMs = this.silenceStart > 0 ? now - this.silenceStart : 0
+        if (silenceMs >= this.maxSilenceMs) {
+          const durationMs = now - this.speechStart
+          this.speaking = false
+          this.speakingMs = 0
+          this.silenceStart = 0
+          this.speechCandidateStart = 0
+          if (durationMs >= this.minSpeechMs) {
+            this.stopRecorder(durationMs)
+          } else {
+            this.abortRecorder()
+          }
+        } else {
+          this.speakingMs = now - this.speechStart
         }
       }
     }
 
     this.onMetrics?.({
-      rms,
+      rms: this.smoothedRms,
       speaking: this.speaking,
       speakingMs: this.speakingMs,
       timestamp: now,
@@ -140,6 +176,10 @@ export class AudioEngine {
   }
 
   private startRecorder(): void {
+    if (this.recorder && this.recorder.state !== 'inactive') {
+      return
+    }
+
     this.chunks = []
     this.meterSamples = []
 
@@ -169,7 +209,8 @@ export class AudioEngine {
     const recorder = this.recorder
     recorder.onstop = () => {
       const blob = new Blob(this.chunks, { type: recorder.mimeType })
-      if (blob.size > 0) {
+      const isLikelyNoise = avgVolume < Math.max(this.threshold * 0.7, this.noiseFloor * 1.35) && durationMs < 1800
+      if (blob.size > 0 && !isLikelyNoise) {
         this.onChunk?.({
           id: crypto.randomUUID(),
           blob,

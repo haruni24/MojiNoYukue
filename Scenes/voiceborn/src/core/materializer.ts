@@ -120,9 +120,9 @@ export function materializeSpeechTrace(
   const anchor = resolveAnchor(speaker)
   const compact = event.text.replace(/\s+/g, ' ').trim()
   const textLength = compact.length
-  const bubbleWidth = Math.min(width * 0.34, Math.max(220, textLength * 16))
-  const estimatedLines = Math.max(1, Math.ceil(textLength / 18))
-  const bubbleHeight = 54 + Math.min(3, estimatedLines - 1) * 24
+  const bubbleWidth = Math.min(width * 0.44, Math.max(260, 180 + textLength * 11))
+  const estimatedLines = Math.max(1, Math.ceil(textLength / 16))
+  const bubbleHeight = 62 + Math.min(5, estimatedLines - 1) * 24
 
   return {
     id: event.id,
