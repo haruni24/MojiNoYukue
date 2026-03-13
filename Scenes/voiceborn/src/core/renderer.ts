@@ -1,4 +1,4 @@
-import type { GlyphParticle, SceneState } from '../types/scene'
+import type { GlyphParticle, SceneState, SpeechTrace } from '../types/scene'
 
 /*  ──────────────────────────────────────────
     Voiceborn — Scene Renderer
@@ -20,11 +20,15 @@ const PALETTE = {
   hudDim: 'rgba(138, 135, 128, 0.4)',
   hudSoft: 'rgba(210, 206, 198, 0.5)',
   hudAccent: 'rgba(196, 169, 106, 0.55)',
-  hudTranscript: 'rgba(232, 228, 223, 0.6)',
+  hudTranscript: 'rgba(232, 228, 223, 0.38)',
 
   // 参加者オーラ — 暖色系に統一
   auraPrimary: 'rgba(196, 169, 106, 0.18)',
   auraSecondary: 'rgba(180, 175, 165, 0.1)',
+  traceCore: 'rgba(232, 228, 223, 0.92)',
+  traceWarm: 'rgba(214, 188, 130, 0.7)',
+  traceLine: 'rgba(214, 188, 130, 0.18)',
+  traceMist: 'rgba(232, 228, 223, 0.08)',
 } as const
 
 export class SceneRenderer {
@@ -75,6 +79,7 @@ export class SceneRenderer {
     this.drawBackground(width, height, state.silhouetteStrength, timestamp)
     this.drawSegmentedPeople(state)
     this.drawParticipantAuras(state, width, height)
+    this.drawSpeechTraces(state.traces, width, height, timestamp)
     this.drawParticles(state.particles)
     this.drawAmbientHUD(width, height, state)
 
@@ -216,6 +221,207 @@ export class SceneRenderer {
     })
   }
 
+  private drawSpeechTraces(traces: SpeechTrace[], width: number, height: number, timestamp: number): void {
+    const ctx = this.ctx
+
+    traces.forEach((trace) => {
+      if (!trace.text) {
+        return
+      }
+
+      const lifeRatio = trace.life / trace.maxLife
+      const enter = this.easeOutBack(Math.min(1, trace.life / 380))
+      const fadeOut = Math.min(1, (1 - lifeRatio) / 0.2)
+      const alpha = Math.max(0, Math.min(1, enter) * fadeOut * trace.intensity)
+      if (alpha <= 0.01) {
+        return
+      }
+
+      const anchorX = trace.anchor.x * width
+      const anchorY = trace.anchor.y * height
+      const floatX = trace.offset.x + Math.sin(timestamp * 0.0008 + trace.seed) * 2
+      const floatY = trace.offset.y + Math.cos(timestamp * 0.001 + trace.seed) * 2
+      const gap = 18
+      const margin = 24
+      const preferHorizontal = anchorX < width * 0.24 || anchorX > width * 0.76
+      const placeRight = anchorX < width * 0.5
+      const hasTopRoom = anchorY - trace.height - gap > margin
+      const placeBelow = !hasTopRoom && anchorY < height * 0.58
+      let boxX = anchorX - trace.width * 0.5
+      let boxY = placeBelow ? anchorY + gap : anchorY - trace.height - gap
+
+      if (preferHorizontal) {
+        boxX = placeRight ? anchorX + gap : anchorX - trace.width - gap
+        boxY = anchorY - trace.height * 0.5
+      }
+
+      boxX = Math.min(width - trace.width - margin, Math.max(margin, boxX + floatX))
+      boxY = Math.min(height - trace.height - margin, Math.max(margin, boxY + floatY))
+
+      const slideX = preferHorizontal ? (1 - enter) * (placeRight ? 20 : -20) : 0
+      const slideY = preferHorizontal ? 0 : (1 - enter) * (placeBelow ? -16 : 16)
+      boxX += slideX
+      boxY += slideY
+
+      const radius = 22
+      const lines = this.wrapTraceText(trace.text, trace.width - 44)
+      const contentHeight = lines.length * 22
+      const textStartY = boxY + trace.height * 0.5 - contentHeight * 0.5 + 2
+      const tailPoint = this.computeBubbleTailPoint(boxX, boxY, trace.width, trace.height, anchorX, anchorY)
+
+      ctx.save()
+      ctx.globalAlpha = alpha
+
+      ctx.shadowBlur = 24
+      ctx.shadowColor = `rgba(0, 0, 0, ${0.18 * alpha})`
+      ctx.fillStyle = `rgba(252, 252, 248, ${0.9 * alpha})`
+      this.fillRoundedRect(boxX, boxY, trace.width, trace.height, radius)
+      this.fillBubbleTail(tailPoint.x, tailPoint.y, anchorX, anchorY)
+
+      ctx.shadowBlur = 0
+      ctx.strokeStyle = `rgba(0, 0, 0, ${0.08 * alpha})`
+      ctx.lineWidth = 1
+      this.strokeRoundedRect(boxX + 0.5, boxY + 0.5, trace.width - 1, trace.height - 1, radius - 0.5)
+      this.strokeBubbleTail(tailPoint.x, tailPoint.y, anchorX, anchorY)
+
+      ctx.font = "400 20px 'Noto Sans JP', 'Hiragino Sans', sans-serif"
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillStyle = `rgba(24, 24, 28, ${0.92 * alpha})`
+      lines.forEach((line, lineIndex) => {
+        const lineY = textStartY + lineIndex * 22
+        ctx.fillText(line, boxX + trace.width * 0.5, lineY)
+      })
+
+      ctx.restore()
+    })
+  }
+
+  private wrapTraceText(text: string, maxWidth: number): string[] {
+    const ctx = this.ctx
+    ctx.font = "400 20px 'Noto Sans JP', 'Hiragino Sans', sans-serif"
+    const chars = Array.from(text)
+    const lines: string[] = []
+    let current = ''
+
+    chars.forEach((char) => {
+      const next = `${current}${char}`
+      if (current && ctx.measureText(next).width > maxWidth) {
+        lines.push(current)
+        current = char
+        return
+      }
+      current = next
+    })
+
+    if (current) {
+      lines.push(current)
+    }
+
+    return lines.slice(0, 3)
+  }
+
+  private fillRoundedRect(x: number, y: number, width: number, height: number, radius: number): void {
+    const ctx = this.ctx
+    ctx.beginPath()
+    ctx.moveTo(x + radius, y)
+    ctx.arcTo(x + width, y, x + width, y + height, radius)
+    ctx.arcTo(x + width, y + height, x, y + height, radius)
+    ctx.arcTo(x, y + height, x, y, radius)
+    ctx.arcTo(x, y, x + width, y, radius)
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  private strokeRoundedRect(x: number, y: number, width: number, height: number, radius: number): void {
+    const ctx = this.ctx
+    ctx.beginPath()
+    ctx.moveTo(x + radius, y)
+    ctx.arcTo(x + width, y, x + width, y + height, radius)
+    ctx.arcTo(x + width, y + height, x, y + height, radius)
+    ctx.arcTo(x, y + height, x, y, radius)
+    ctx.arcTo(x, y, x + width, y, radius)
+    ctx.closePath()
+    ctx.stroke()
+  }
+
+  private computeBubbleTailPoint(
+    boxX: number,
+    boxY: number,
+    boxWidth: number,
+    boxHeight: number,
+    anchorX: number,
+    anchorY: number,
+  ): { x: number; y: number } {
+    const nearestX = Math.max(boxX + 18, Math.min(anchorX, boxX + boxWidth - 18))
+    const nearestY = Math.max(boxY + 18, Math.min(anchorY, boxY + boxHeight - 18))
+
+    const leftDistance = Math.abs(anchorX - boxX)
+    const rightDistance = Math.abs(anchorX - (boxX + boxWidth))
+    const topDistance = Math.abs(anchorY - boxY)
+    const bottomDistance = Math.abs(anchorY - (boxY + boxHeight))
+    const minDistance = Math.min(leftDistance, rightDistance, topDistance, bottomDistance)
+
+    if (minDistance === leftDistance) {
+      return { x: boxX, y: nearestY }
+    }
+    if (minDistance === rightDistance) {
+      return { x: boxX + boxWidth, y: nearestY }
+    }
+    if (minDistance === topDistance) {
+      return { x: nearestX, y: boxY }
+    }
+    return { x: nearestX, y: boxY + boxHeight }
+  }
+
+  private fillBubbleTail(startX: number, startY: number, anchorX: number, anchorY: number): void {
+    const ctx = this.ctx
+    const dx = anchorX - startX
+    const dy = anchorY - startY
+    const length = Math.max(1, Math.hypot(dx, dy))
+    const nx = dx / length
+    const ny = dy / length
+    const px = -ny
+    const py = nx
+    const base = 7
+    const tipX = anchorX - nx * 8
+    const tipY = anchorY - ny * 8
+
+    ctx.beginPath()
+    ctx.moveTo(startX + px * base, startY + py * base)
+    ctx.quadraticCurveTo(startX + dx * 0.35, startY + dy * 0.35, tipX, tipY)
+    ctx.quadraticCurveTo(startX + dx * 0.22, startY + dy * 0.22, startX - px * base, startY - py * base)
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  private strokeBubbleTail(startX: number, startY: number, anchorX: number, anchorY: number): void {
+    const ctx = this.ctx
+    const dx = anchorX - startX
+    const dy = anchorY - startY
+    const length = Math.max(1, Math.hypot(dx, dy))
+    const nx = dx / length
+    const ny = dy / length
+    const px = -ny
+    const py = nx
+    const base = 7
+    const tipX = anchorX - nx * 8
+    const tipY = anchorY - ny * 8
+
+    ctx.beginPath()
+    ctx.moveTo(startX + px * base, startY + py * base)
+    ctx.quadraticCurveTo(startX + dx * 0.35, startY + dy * 0.35, tipX, tipY)
+    ctx.quadraticCurveTo(startX + dx * 0.22, startY + dy * 0.22, startX - px * base, startY - py * base)
+    ctx.closePath()
+    ctx.stroke()
+  }
+
+  private easeOutBack(x: number): number {
+    const c1 = 1.70158
+    const c3 = c1 + 1
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2)
+  }
+
   private drawAmbientHUD(width: number, height: number, state: SceneState): void {
     const ctx = this.ctx
 
@@ -235,8 +441,8 @@ export class SceneRenderer {
     if (state.lastTranscript) {
       ctx.textAlign = 'center'
       ctx.fillStyle = PALETTE.hudTranscript
-      ctx.font = "400 15px 'Noto Serif JP', 'Noto Sans JP', 'Hiragino Sans', sans-serif"
-      ctx.fillText(state.lastTranscript, width / 2, height - 30)
+      ctx.font = "400 12px 'IBM Plex Mono', 'Noto Sans JP', sans-serif"
+      ctx.fillText(state.lastTranscript, width / 2, height - 24)
       ctx.textAlign = 'left'
     }
     ctx.restore()

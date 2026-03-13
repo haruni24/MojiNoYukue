@@ -1,4 +1,4 @@
-import type { GlyphParticle, ParticipantTrack, TranscriptEvent } from '../types/scene'
+import type { GlyphParticle, ParticipantTrack, SpeechTrace, TranscriptEvent, Vec2 } from '../types/scene'
 
 const JA_SEGMENTER =
   typeof Intl !== 'undefined' && 'Segmenter' in Intl
@@ -42,6 +42,38 @@ export function createTranscriptEvent(
   }
 }
 
+function resolveAnchor(speaker: ParticipantTrack | null): Vec2 {
+  if (speaker && speaker.landmarks.length > 0) {
+    const nose = speaker.landmarks[0]
+    const leftShoulder = speaker.landmarks[11]
+    const rightShoulder = speaker.landmarks[12]
+
+    if (nose && (nose.visibility ?? 0) > 0.35) {
+      return {
+        x: nose.x,
+        y: Math.max(0.06, nose.y - 0.035),
+      }
+    }
+
+    if (leftShoulder && rightShoulder) {
+      return {
+        x: (leftShoulder.x + rightShoulder.x) * 0.5,
+        y: Math.max(0.08, Math.min(leftShoulder.y, rightShoulder.y) - 0.08),
+      }
+    }
+  }
+
+  return speaker
+    ? {
+        x: speaker.centroid.x,
+        y: Math.max(0.08, speaker.centroid.y - 0.08),
+      }
+    : {
+        x: 0.35 + Math.random() * 0.3,
+        y: 0.3 + Math.random() * 0.18,
+      }
+}
+
 export function materializeTranscript(
   event: TranscriptEvent,
   speaker: ParticipantTrack | null,
@@ -79,6 +111,37 @@ export function materializeTranscript(
   return particles
 }
 
+export function materializeSpeechTrace(
+  event: TranscriptEvent,
+  speaker: ParticipantTrack | null,
+  width: number,
+  _height: number,
+): SpeechTrace {
+  const anchor = resolveAnchor(speaker)
+  const compact = event.text.replace(/\s+/g, ' ').trim()
+  const textLength = compact.length
+  const bubbleWidth = Math.min(width * 0.34, Math.max(220, textLength * 16))
+  const estimatedLines = Math.max(1, Math.ceil(textLength / 18))
+  const bubbleHeight = 54 + Math.min(3, estimatedLines - 1) * 24
+
+  return {
+    id: event.id,
+    speakerId: event.speakerId,
+    text: compact,
+    anchor,
+    life: 0,
+    maxLife: 7200 + Math.random() * 2600,
+    width: bubbleWidth,
+    height: bubbleHeight,
+    offset: {
+      x: 0,
+      y: 0,
+    },
+    seed: Math.random() * Math.PI * 2,
+    intensity: speaker?.isPrimary ? 1 : 0.72,
+  }
+}
+
 export function stepParticles(particles: GlyphParticle[], deltaMs: number, audioRms: number): GlyphParticle[] {
   const dt = deltaMs / 1000
   const turbulence = 14 + audioRms * 220
@@ -102,4 +165,40 @@ export function stepParticles(particles: GlyphParticle[], deltaMs: number, audio
       }
     })
     .filter((particle) => particle.life < particle.maxLife)
+}
+
+export function stepSpeechTraces(
+  traces: SpeechTrace[],
+  participants: ParticipantTrack[],
+  deltaMs: number,
+  audioRms: number,
+): SpeechTrace[] {
+  const dt = deltaMs / 1000
+  const participantMap = new Map(participants.map((participant) => [participant.id, participant]))
+
+  return traces
+    .map((trace) => {
+      const speaker = trace.speakerId ? participantMap.get(trace.speakerId) ?? null : null
+      const target = speaker
+        ? resolveAnchor(speaker)
+        : trace.anchor
+
+      const follow = Math.min(1, dt * (speaker ? 4.2 : 0.9))
+      const intensityTarget = (speaker?.isPrimary ? 1 : 0.75) + audioRms * 0.25
+
+      return {
+        ...trace,
+        anchor: {
+          x: trace.anchor.x + (target.x - trace.anchor.x) * follow,
+          y: trace.anchor.y + (target.y - trace.anchor.y) * follow,
+        },
+        intensity: trace.intensity + (intensityTarget - trace.intensity) * Math.min(1, dt * 1.8),
+        offset: {
+          x: Math.sin(trace.life * 0.001 + trace.seed) * 4,
+          y: Math.cos(trace.life * 0.0013 + trace.seed * 0.7) * 3,
+        },
+        life: trace.life + deltaMs,
+      }
+    })
+    .filter((trace) => trace.life < trace.maxLife)
 }

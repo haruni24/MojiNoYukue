@@ -1,4 +1,4 @@
-import { createTranscriptEvent, materializeTranscript, stepParticles } from './materializer'
+import { createTranscriptEvent, materializeSpeechTrace, stepSpeechTraces } from './materializer'
 import { SceneRenderer } from './renderer'
 import { transcribeWithOpenAI, type TranscriptConfig } from './transcript'
 import type {
@@ -6,6 +6,7 @@ import type {
   GlyphParticle,
   ParticipantTrack,
   SceneState,
+  SpeechTrace,
   SpeechChunk,
   VisionSnapshot,
 } from '../types/scene'
@@ -34,6 +35,7 @@ export class SceneDirector {
 
   private participants: ParticipantTrack[] = []
   private particles: GlyphParticle[] = []
+  private traces: SpeechTrace[] = []
   private lastTranscript = ''
   private audioMetrics: AudioMetrics = INITIAL_AUDIO_METRICS
   private lastFrameTimestamp = 0
@@ -57,6 +59,10 @@ export class SceneDirector {
 
   stop(): void {
     this.running = false
+    this.particles = []
+    this.traces = []
+    this.lastTranscript = ''
+    this.lastFrameTimestamp = 0
   }
 
   onVisionFrame(snapshot: VisionSnapshot, videoFrame: HTMLVideoElement | null): void {
@@ -68,12 +74,13 @@ export class SceneDirector {
     const deltaMs = this.lastFrameTimestamp > 0 ? snapshot.timestamp - this.lastFrameTimestamp : 16
     this.lastFrameTimestamp = snapshot.timestamp
 
-    this.particles = stepParticles(this.particles, Math.max(1, deltaMs), this.audioMetrics.rms)
+    this.traces = stepSpeechTraces(this.traces, this.participants, Math.max(1, deltaMs), this.audioMetrics.rms)
 
     this.renderer.resize(this.canvas.clientWidth, this.canvas.clientHeight)
     const state: SceneState = {
       participants: this.participants,
       particles: this.particles,
+      traces: this.traces,
       lastTranscript: this.lastTranscript,
       silhouetteStrength: snapshot.silhouetteStrength,
       segmentation: snapshot.segmentation,
@@ -174,16 +181,16 @@ export class SceneDirector {
         createdAt: event.createdAt,
       })
 
-      const created = materializeTranscript(
+      const trace = materializeSpeechTrace(
         event,
         primary,
         this.canvas.clientWidth || this.canvas.width,
         this.canvas.clientHeight || this.canvas.height,
       )
 
-      this.particles.push(...created)
-      if (this.particles.length > 1800) {
-        this.particles = this.particles.slice(this.particles.length - 1800)
+      this.traces.push(trace)
+      if (this.traces.length > 12) {
+        this.traces = this.traces.slice(this.traces.length - 12)
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'transcription failed'

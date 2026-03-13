@@ -72,9 +72,24 @@ export type GlyphParticle = {
   glow: number
 }
 
+export type SpeechTrace = {
+  id: string
+  speakerId: string | null
+  text: string
+  anchor: Vec2
+  life: number
+  maxLife: number
+  width: number
+  height: number
+  offset: Vec2
+  seed: number
+  intensity: number
+}
+
 export type SceneState = {
   participants: ParticipantTrack[]
   particles: GlyphParticle[]
+  traces: SpeechTrace[]
   lastTranscript: string
   silhouetteStrength: number
   segmentation: SegmentationFrame | null
