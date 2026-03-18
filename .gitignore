@@ -7,3 +7,6 @@ web/dist
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# local database
+Scenes/scene-bus/data/*.sqlite
